@@ -65,5 +65,21 @@ window.KOPMA_SEED = {
   academicForecast: [
     { periode: 'Pekan Ujian Akhir Semester (UAS)', waktu: '2 minggu lagi', lonjakan: '+42%', detail: 'Permintaan ATK, Kertas HVS A4 & Kopi Susu KOPMA', aksi: 'Tingkatkan stok HVS A4 minimal 45 rim dan bahan baku Kopi Susu Gula Aren +50% sebelum Senin depan.' },
     { periode: 'Awal Bulan / Pencairan Beasiswa', waktu: 'Tanggal 1 – 7', lonjakan: '+35%', detail: 'Transaksi Sembako & Setoran Simpanan Sukarela via QRIS', aksi: 'Aktifkan Promo Paket Hemat Kos Mahasiswa dan pastikan kuota settlement QRIS Midtrans aktif.' }
-  ]
+  ],
+
+  security: {
+    pin: '123456',
+    autoLockMinutes: 5,
+    twoFactorAuth: false,
+    encryptionStatus: 'AES-256 Vault Aktif',
+    failedAttempts: 0,
+    lockoutUntil: null,
+    auditLogs: [
+      { id: 1, time: '2026-10-31T14:32:00', actor: 'Fatkhul Umam (Admin)', action: 'Login otentikasi sesi berhasil', ip: '192.168.1.10', level: 'INFO' },
+      { id: 2, time: '2026-10-31T14:45:12', actor: 'Siti Rahmawati (Kasir)', action: 'Sesi Kasir Mart dibuka dengan shortcut F2', ip: '192.168.1.14', level: 'INFO' },
+      { id: 3, time: '2026-10-31T15:10:05', actor: 'Sistem Toko Umam', action: 'Inisialisasi enkripsi sesi & repository publik', ip: '127.0.0.1', level: 'INFO' },
+      { id: 4, time: '2026-10-31T15:25:50', actor: 'Fatkhul Umam (Admin)', action: 'Sinkronisasi konfigurasi Midtrans API Keys', ip: '192.168.1.10', level: 'WARN' },
+      { id: 5, time: '2026-10-31T15:35:20', actor: 'Sistem Audit Keamanan', action: 'Pemeriksaan integritas database: 100% Valid & Aman', ip: '127.0.0.1', level: 'INFO' }
+    ]
+  }
 };

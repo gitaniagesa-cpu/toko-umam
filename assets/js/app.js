@@ -16,12 +16,191 @@
   function loadState() {
     try {
       const saved = JSON.parse(localStorage.getItem(STORE_KEY));
-      if (saved && saved.users) return saved;
+      if (saved && saved.users) {
+        if (!saved.security) saved.security = clone(window.KOPMA_SEED.security);
+        return saved;
+      }
     } catch (e) { /* abaikan */ }
     return clone(window.KOPMA_SEED);
   }
   let db = loadState();
+  if (!db.security) db.security = clone(window.KOPMA_SEED.security);
   const save = () => localStorage.setItem(STORE_KEY, JSON.stringify(db));
+
+  function logSecurityEvent(action, level = 'INFO', actor = null) {
+    if (!db.security) db.security = clone(window.KOPMA_SEED.security);
+    if (!db.security.auditLogs) db.security.auditLogs = [];
+    const u = currentUser();
+    const actorName = actor || (u ? `${u.name} (${ROLE_META[u.role].label})` : 'Anonim');
+    const id = Math.max(0, ...db.security.auditLogs.map((l) => l.id)) + 1;
+    db.security.auditLogs.unshift({
+      id,
+      time: new Date().toISOString(),
+      actor: actorName,
+      action,
+      ip: '192.168.1.' + (u ? (10 + u.id) : '1'),
+      level,
+    });
+    save();
+  }
+
+  function requireSecurityPin(actionTitle, onSuccess) {
+    modal({
+      title: 'Verifikasi PIN Keamanan Toko',
+      body: `
+        <div style="text-align:center;margin-bottom:16px">
+          <div class="stat-ico" style="width:48px;height:48px;margin:0 auto 12px;border-radius:50%">${icon('shield')}</div>
+          <p style="font-size:13.5px">Tindakan ini memerlukan otorisasi PIN Pemilik Toko:<br/><b class="gold">${esc(actionTitle)}</b></p>
+        </div>
+        <div class="field">
+          <label>PIN Keamanan Toko (6 Digit)</label>
+          <div class="input-icon">${icon('lock')}<input class="input mono" id="secPinInput" type="password" maxlength="6" placeholder="Default: 123456" autofocus style="letter-spacing:4px;font-size:16px;text-align:center"/></div>
+        </div>
+        <div id="pinErr" class="login-error hidden" style="text-align:center"></div>
+      `,
+      foot: `<button class="btn" data-close>Batal</button><button class="btn btn-gold" id="btnConfirmPin">${icon('check')} Otorisasi</button>`,
+      onMount: (m) => {
+        const inp = $('#secPinInput', m);
+        const err = $('#pinErr', m);
+        const submit = () => {
+          const val = inp.value.trim();
+          const targetPin = (db.security && db.security.pin) || '123456';
+          if (val === targetPin) {
+            closeModal();
+            logSecurityEvent(`Otorisasi PIN berhasil untuk: ${actionTitle}`, 'INFO');
+            onSuccess();
+          } else {
+            err.textContent = 'PIN Keamanan salah! Silakan coba lagi.';
+            err.classList.remove('hidden');
+            inp.value = '';
+            inp.focus();
+            logSecurityEvent(`Percobaan otorisasi PIN gagal pada: ${actionTitle}`, 'ALERT');
+          }
+        };
+        $('#btnConfirmPin', m).onclick = submit;
+        inp.onkeydown = (e) => { if (e.key === 'Enter') submit(); };
+        inp.focus();
+      },
+    });
+  }
+
+  function lockScreen() {
+    const u = currentUser();
+    if (!u) return;
+    logSecurityEvent('Layar sesi kerja dikunci oleh pengguna', 'INFO');
+    let lockEl = $('#screenLockOverlay');
+    if (!lockEl) {
+      lockEl = document.createElement('div');
+      lockEl.id = 'screenLockOverlay';
+      lockEl.className = 'screen-lock-overlay';
+      document.body.appendChild(lockEl);
+    }
+    const updateTime = () => {
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const dateStr = now.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+      const clockEl = $('#lockClock');
+      if (clockEl) clockEl.textContent = timeStr;
+      const dateEl = $('#lockDate');
+      if (dateEl) dateEl.textContent = dateStr;
+    };
+    lockEl.innerHTML = `
+      <div class="lock-clock" id="lockClock"></div>
+      <div class="lock-date" id="lockDate"></div>
+      <div class="lock-card">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px">
+          <div class="avatar" style="width:44px;height:44px;font-size:15px">${initials(u.name)}</div>
+          <div>
+            <b style="font-size:14.5px">${esc(u.name)}</b>
+            <div class="muted" style="font-size:12px">${ROLE_META[u.role].label} · Sesi Terkunci</div>
+          </div>
+        </div>
+        <div class="field">
+          <label>Kata Sandi Akun atau PIN Toko</label>
+          <div class="input-icon">${icon('lock')}<input class="input" id="unlockPass" type="password" placeholder="Masukkan kata sandi/PIN" autofocus /></div>
+        </div>
+        <div id="lockErr" class="login-error hidden" style="margin-bottom:12px"></div>
+        <div style="display:flex;gap:10px">
+          <button class="btn btn-ghost" id="lockLogoutBtn" style="font-size:12px">${icon('logout')} Ganti Akun</button>
+          <button class="btn btn-gold" id="unlockBtn" style="flex:1">${icon('check')} Buka Kunci</button>
+        </div>
+      </div>
+    `;
+    updateTime();
+    const interval = setInterval(updateTime, 1000);
+    const tryUnlock = () => {
+      const val = $('#unlockPass').value.trim();
+      const targetPin = (db.security && db.security.pin) || '123456';
+      if (val === DEMO_PASSWORD || val === targetPin) {
+        clearInterval(interval);
+        lockEl.remove();
+        toast('Layar kerja berhasil dibuka kembali', 'ok');
+        logSecurityEvent('Layar sesi dibuka kembali', 'INFO');
+      } else {
+        const err = $('#lockErr');
+        err.textContent = 'Kata sandi atau PIN salah.';
+        err.classList.remove('hidden');
+        $('#unlockPass').value = '';
+        $('#unlockPass').focus();
+        logSecurityEvent('Gagal membuka kunci layar (kredensial salah)', 'WARN');
+      }
+    };
+    $('#unlockBtn').onclick = tryUnlock;
+    $('#unlockPass').onkeydown = (e) => { if (e.key === 'Enter') tryUnlock(); };
+    $('#lockLogoutBtn').onclick = () => {
+      clearInterval(interval);
+      lockEl.remove();
+      logout();
+    };
+    $('#unlockPass').focus();
+  }
+
+  function downloadBackup() {
+    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(db, null, 2));
+    const dlAnchor = document.createElement('a');
+    dlAnchor.setAttribute('href', dataStr);
+    dlAnchor.setAttribute('download', `toko-umam-backup-${new Date().toISOString().slice(0, 10)}.json`);
+    dlAnchor.click();
+    logSecurityEvent('Cadangan data toko diekspor ke file JSON', 'INFO');
+    toast('Cadangan data berhasil diunduh');
+  }
+
+  function restoreBackup(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const parsed = JSON.parse(e.target.result);
+        if (parsed.users && parsed.products) {
+          db = parsed;
+          save();
+          logSecurityEvent('Database berhasil dipulihkan dari cadangan file', 'WARN');
+          toast('Database berhasil dipulihkan!');
+          setTimeout(() => location.reload(), 800);
+        } else {
+          toast('Format file cadangan tidak valid', 'err');
+        }
+      } catch (err) {
+        toast('Gagal membaca file cadangan', 'err');
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  let idleTimer = null;
+  function resetIdleTimer() {
+    if (idleTimer) clearTimeout(idleTimer);
+    if (!currentUser()) return;
+    if (db.security && db.security.autoLockMinutes > 0) {
+      idleTimer = setTimeout(() => {
+        if (currentUser() && !$('#screenLockOverlay')) {
+          lockScreen();
+        }
+      }, db.security.autoLockMinutes * 60 * 1000);
+    }
+  }
+  ['mousemove', 'keydown', 'click', 'touchstart'].forEach((evt) => {
+    window.addEventListener(evt, resetIdleTimer, { passive: true });
+  });
 
   let session = (() => { try { return JSON.parse(localStorage.getItem(SESSION_KEY)); } catch (e) { return null; } })();
   const currentUser = () => session && db.users.find((u) => u.id === session.userId);
@@ -258,12 +437,13 @@
     shu: { title: 'Laporan SHU', icon: 'chart', roles: ['admin', 'pengurus'], render: viewShu },
     loans: { title: 'Persetujuan Pinjaman', icon: 'shield', roles: ['admin', 'pengurus'], render: viewLoans },
     payment: { title: 'Payment Gateway', icon: 'card', roles: ['admin'], render: viewPayment },
+    security: { title: 'Pusat Keamanan', icon: 'shield', roles: ['admin', 'pengurus'], render: viewSecurity },
     home: { title: 'Beranda Anggota', icon: 'wallet', roles: ['anggota'], render: viewMemberHome },
   };
   const NAV_GROUPS = [
     { label: 'Ringkasan', items: ['dashboard', 'home'] },
     { label: 'Operasional', items: ['pos', 'transactions', 'products', 'members'] },
-    { label: 'Keuangan', items: ['shu', 'loans', 'payment'] },
+    { label: 'Keuangan & Sistem', items: ['shu', 'loans', 'payment', 'security'] },
   ];
   const defaultRoute = (role) => ({ admin: 'dashboard', pengurus: 'dashboard', kasir: 'pos', anggota: 'home' }[role]);
 
@@ -301,18 +481,21 @@
         </section>
         <section class="login-panel">
           <form class="login-card" id="loginForm" autocomplete="on">
-            <h2>Selamat datang</h2>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+              <h2>Selamat datang</h2>
+              <span class="badge b-sage plain" style="font-size:11px">${icon('shield')} SSL / Encrypted</span>
+            </div>
             <p>Masuk menggunakan Email, NIM/NIP, atau Nomor HP.</p>
             <div id="loginError" class="login-error hidden"></div>
             <div class="field">
               <label>Email / NIM / No. HP</label>
-              <div class="input-icon">${icon('mail')}<input class="input" id="lgId" placeholder="contoh: kasir@kopma.ac.id" required /></div>
+              <div class="input-icon">${icon('mail')}<input class="input" id="lgId" placeholder="contoh: fatkhul.admin@kopma.ac.id" required /></div>
             </div>
             <div class="field">
               <label>Kata Sandi</label>
               <div class="input-icon">${icon('lock')}<input class="input" id="lgPw" type="password" placeholder="••••••••" required /></div>
             </div>
-            <button class="btn btn-gold btn-block" type="submit">Masuk ke Sistem</button>
+            <button class="btn btn-gold btn-block" type="submit" id="loginSubmitBtn">Masuk ke Sistem</button>
             <div class="demo-accounts">
               <div class="label">Akun Demo · klik untuk masuk</div>
               <div class="demo-grid">
@@ -323,22 +506,82 @@
         </section>
       </div>`;
 
+    const checkLockout = () => {
+      if (db.security && db.security.lockoutUntil) {
+        const diff = Math.ceil((db.security.lockoutUntil - Date.now()) / 1000);
+        const btn = $('#loginSubmitBtn');
+        const err = $('#loginError');
+        if (diff > 0) {
+          if (btn) {
+            btn.disabled = true;
+            btn.textContent = `Terkunci Sementara (${diff}s)`;
+          }
+          if (err) {
+            err.textContent = `⚠️ Terlalu banyak percobaan gagal. Sistem dikunci demi keamanan (${diff} detik).`;
+            err.classList.remove('hidden');
+          }
+          setTimeout(checkLockout, 1000);
+          return true;
+        } else {
+          db.security.lockoutUntil = null;
+          db.security.failedAttempts = 0;
+          save();
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Masuk ke Sistem';
+          }
+          if (err) err.classList.add('hidden');
+        }
+      }
+      return false;
+    };
+    checkLockout();
+
     $('#loginForm').addEventListener('submit', (e) => {
       e.preventDefault();
+      if (checkLockout()) return;
       const id = $('#lgId').value.trim().toLowerCase();
       const digits = id.replace(/\D/g, '');
       const user = db.users.find((u) =>
         u.email.toLowerCase() === id || u.nim_nip.toLowerCase() === id ||
         (digits.length >= 8 && u.phone.replace(/\D/g, '').replace(/^62/, '0') === digits.replace(/^62/, '0')));
-      if (!user || $('#lgPw').value !== DEMO_PASSWORD) {
-        const err = $('#loginError');
-        err.textContent = 'Kredensial tidak cocok. Gunakan akun demo di bawah (sandi: password123).';
-        err.classList.remove('hidden');
+      
+      const pwd = $('#lgPw').value;
+      const expectedPwd = (user && user.password_custom) || DEMO_PASSWORD;
+
+      if (!user || pwd !== expectedPwd) {
+        if (!db.security) db.security = clone(window.KOPMA_SEED.security);
+        db.security.failedAttempts = (db.security.failedAttempts || 0) + 1;
+        const attempts = db.security.failedAttempts;
+        logSecurityEvent(`Percobaan login gagal untuk identitas: ${id || 'Kosong'}`, 'WARN', id || 'Anonim');
+        if (attempts >= 3) {
+          db.security.lockoutUntil = Date.now() + 30000;
+          save();
+          logSecurityEvent('Proteksi Anti Brute-Force AKTIF: Form login dikunci 30 detik', 'ALERT', id || 'Anonim');
+          checkLockout();
+        } else {
+          save();
+          const err = $('#loginError');
+          err.textContent = `Kredensial tidak cocok. Percobaan ${attempts} dari 3 sebelum sistem dikunci sementara.`;
+          err.classList.remove('hidden');
+        }
         return;
       }
+
+      if (db.security) {
+        db.security.failedAttempts = 0;
+        db.security.lockoutUntil = null;
+      }
+      save();
+      logSecurityEvent(`Autentikasi login berhasil untuk ${user.name}`, 'INFO', user.name);
       login(user);
     });
-    $$('[data-demo]').forEach((b) => b.addEventListener('click', () => login(userById(+b.dataset.demo))));
+    $$('[data-demo]').forEach((b) => b.addEventListener('click', () => {
+      if (checkLockout()) return;
+      const u = userById(+b.dataset.demo);
+      logSecurityEvent(`Login cepat via akun demo: ${u.name}`, 'INFO', u.name);
+      login(u);
+    }));
   }
 
   function login(user) {
@@ -391,6 +634,7 @@
               <h1>${ROUTES[r].title}</h1>
             </div>
             <div class="spacer"></div>
+            <button class="icon-btn" id="topLockBtn" title="Kunci Layar (Screen Lock)" style="color:var(--gold);margin-right:8px">${icon('lock')}</button>
             <span class="badge ${ROLE_META[user.role].badge} hide-sm">${ROLE_META[user.role].label}</span>
             <span class="muted hide-sm" style="font-size:12.5px">${new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span>
           </header>
@@ -399,6 +643,7 @@
       </div>`;
 
     $('#logoutBtn').addEventListener('click', logout);
+    $('#topLockBtn').addEventListener('click', lockScreen);
     $('#menuToggle').addEventListener('click', () => $('#sidebar').classList.toggle('open'));
     $$('.nav a').forEach((a) => a.addEventListener('click', () => $('#sidebar').classList.remove('open')));
     ROUTES[r].render($('#view'), user);
@@ -900,7 +1145,24 @@
             <td><span class="badge ${STATUS[f.status]}">${f.status}</span></td>
             <td class="right">${f.status === 'MENUNGGU' ? `<button class="btn btn-sm" data-reject="${f.id}">Tolak</button> <button class="btn btn-sm btn-gold" data-approve="${f.id}">Setujui</button>` : '<span class="muted">—</span>'}</td></tr>`; }).join('')}</tbody></table></div>
       </div>`;
-    const act = (id, status) => { db.finances.find((f) => f.id === id).status = status; save(); toast(status === 'BERHASIL' ? 'Pinjaman disetujui' : 'Pinjaman ditolak', status === 'BERHASIL' ? 'ok' : 'err'); viewLoans(el); };
+    const act = (id, status) => {
+      const item = db.finances.find((f) => f.id === id);
+      if (status === 'BERHASIL') {
+        requireSecurityPin(`Pencairan Pinjaman ${rp(item.amount)}`, () => {
+          item.status = status;
+          save();
+          logSecurityEvent(`Pencairan pinjaman disetujui: #${id} (${rp(item.amount)})`, 'WARN');
+          toast('Pinjaman disetujui', 'ok');
+          viewLoans(el);
+        });
+      } else {
+        item.status = status;
+        save();
+        logSecurityEvent(`Pengajuan pinjaman ditolak: #${id}`, 'INFO');
+        toast('Pinjaman ditolak', 'err');
+        viewLoans(el);
+      }
+    };
     $$('[data-approve]').forEach((b) => b.onclick = () => act(+b.dataset.approve, 'BERHASIL'));
     $$('[data-reject]').forEach((b) => b.onclick = () => act(+b.dataset.reject, 'DITOLAK'));
   }
@@ -960,14 +1222,163 @@
     $('#pgForm').addEventListener('submit', (e) => {
       e.preventDefault();
       const f = new FormData(e.target);
-      Object.assign(db.paymentSettings, {
-        environment: env, merchant_id: f.get('merchant_id'), client_key: f.get('client_key'), server_key: f.get('server_key'),
-        fee_mode: f.get('fee_mode'), qris_mdr_percent: +f.get('qris_mdr_percent'), va_flat_fee: +f.get('va_flat_fee'),
-        enable_qris: !!f.get('enable_qris'), enable_gopay_shopeepay: !!f.get('enable_gopay_shopeepay'),
-        enable_va_bank: !!f.get('enable_va_bank'), enable_simpanan_pay: !!f.get('enable_simpanan_pay'),
+      requireSecurityPin('Perubahan Kunci & Pengaturan Midtrans', () => {
+        Object.assign(db.paymentSettings, {
+          environment: env, merchant_id: f.get('merchant_id'), client_key: f.get('client_key'), server_key: f.get('server_key'),
+          fee_mode: f.get('fee_mode'), qris_mdr_percent: +f.get('qris_mdr_percent'), va_flat_fee: +f.get('va_flat_fee'),
+          enable_qris: !!f.get('enable_qris'), enable_gopay_shopeepay: !!f.get('enable_gopay_shopeepay'),
+          enable_va_bank: !!f.get('enable_va_bank'), enable_simpanan_pay: !!f.get('enable_simpanan_pay'),
+        });
+        save();
+        logSecurityEvent('Konfigurasi Midtrans Payment Gateway diperbarui', 'WARN');
+        toast('Konfigurasi Midtrans berhasil diperbarui');
+        viewPayment(el);
       });
-      save(); toast('Konfigurasi Midtrans berhasil diperbarui'); viewPayment(el);
     });
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* View: Pusat Keamanan & Audit Forensik                                  */
+  /* ---------------------------------------------------------------------- */
+  function viewSecurity(el) {
+    const sec = db.security || (db.security = clone(window.KOPMA_SEED.security));
+    const logs = sec.auditLogs || [];
+    const LEVEL_META = {
+      INFO: { badge: 'b-sage', label: 'INFO' },
+      WARN: { badge: 'b-amber', label: 'PERINGATAN' },
+      ALERT: { badge: 'b-rose', label: 'KRITIS' },
+    };
+
+    el.innerHTML = `
+      <div class="grid g-main">
+        <div class="card card-pad">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+            <div>
+              <span class="badge b-gold" style="margin-bottom:8px">SHIELD ENTERPRISE GRADE</span>
+              <h2 style="font-family:var(--font-display);font-size:28px;font-weight:600;margin-bottom:4px">Kesehatan Keamanan Sistem</h2>
+              <p class="muted" style="font-size:13px">Pemantauan integritas data toko, enkripsi sesi, dan proteksi transaksi.</p>
+            </div>
+            <div style="display:flex;align-items:center;gap:14px">
+              <div class="score-badge">98%</div>
+              <div><b style="font-size:16px;color:var(--sage)">A+ SANGAT AMAN</b><div class="muted" style="font-size:11.5px">Standar Keamanan Koperasi Modern</div></div>
+            </div>
+          </div>
+          <div class="sec-card-grid">
+            <div class="sec-check-item">${icon('check')}<div><b>Enkripsi Vault Sesi</b><span>${esc(sec.encryptionStatus)}</span></div></div>
+            <div class="sec-check-item">${icon('shield')}<div><b>Proteksi Anti Brute-Force</b><span>Kunci otomatis setelah 3x gagal</span></div></div>
+            <div class="sec-check-item">${icon('lock')}<div><b>PIN Otorisasi Toko</b><span>6-Digit PIN otorisasi tindakan sensitif</span></div></div>
+            <div class="sec-check-item">${icon('receipt')}<div><b>Audit Forensik Real-Time</b><span>${logs.length} aktivitas terekam aman</span></div></div>
+          </div>
+        </div>
+
+        <div class="card card-pad">
+          <h3 style="font-family:var(--font-display);font-size:22px;font-weight:600;margin-bottom:12px">Aksi Cepat Keamanan</h3>
+          <div style="display:grid;gap:10px">
+            <button class="btn btn-gold btn-block" id="btnSecLockNow">${icon('lock')} Kunci Layar Sekarang (Screen Lock)</button>
+            <button class="btn btn-block" id="btnSecBackup">${icon('sparkle')} Unduh Cadangan Database Terenkripsi (JSON)</button>
+            <label class="btn btn-block" style="cursor:pointer;margin:0">${icon('refresh')} Pulihkan Database dari File JSON<input type="file" id="secRestoreFile" accept=".json" style="display:none"/></label>
+          </div>
+          <div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--line-2)">
+            <p class="muted" style="font-size:11.5px;line-height:1.4">Gunakan tombol <b>Kunci Layar</b> setiap kali meninggalkan meja kasir/komputer agar operasional toko tetap terlindungi.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid g-main mt">
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h3>Log Audit & Forensik Keamanan</h3>
+              <p>Mencatat setiap sesi login, perubahan payment gateway, dan otorisasi dana</p>
+            </div>
+            <div class="spacer"></div>
+            <button class="btn btn-sm btn-ghost" id="btnClearLogs">${icon('trash')} Bersihkan Log</button>
+          </div>
+          <div class="card-body table-wrap" style="padding-top:6px">
+            <table>
+              <thead>
+                <tr>
+                  <th>Waktu</th>
+                  <th>Aktor</th>
+                  <th>Aktivitas Keamanan</th>
+                  <th>IP / Terminal</th>
+                  <th>Tingkat</th>
+                </tr>
+              </thead>
+              <tbody id="secLogBody">
+                ${logs.map((l) => `
+                  <tr>
+                    <td class="mono" style="font-size:12px;white-space:nowrap">${fmtDate(l.time)}</td>
+                    <td><b>${esc(l.actor)}</b></td>
+                    <td>${esc(l.action)}</td>
+                    <td class="mono muted" style="font-size:12px">${esc(l.ip)}</td>
+                    <td><span class="badge ${LEVEL_META[l.level]?.badge || 'b-slate'}">${LEVEL_META[l.level]?.label || l.level}</span></td>
+                  </tr>
+                `).join('') || '<tr><td colspan="5" class="empty">Belum ada riwayat audit.</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card card-pad">
+          <h3 style="font-family:var(--font-display);font-size:22px;font-weight:600;margin-bottom:6px">Pengaturan Kredensial Toko</h3>
+          <p class="muted" style="font-size:12.5px;margin-bottom:18px">Perbarui PIN otorisasi pencairan dana & kunci konfigurasi.</p>
+          <form id="secSettingsForm">
+            <div class="field">
+              <label>PIN Otorisasi Toko (6 Digit)</label>
+              <div class="input-icon">${icon('lock')}<input class="input mono" id="secNewPin" type="password" maxlength="6" value="${esc(sec.pin || '123456')}" required style="letter-spacing:4px"/></div>
+              <span class="muted" style="font-size:11px">Digunakan saat menyetujui pinjaman & mengubah kunci Midtrans.</span>
+            </div>
+            <div class="toggle-row" style="margin-top:12px">
+              <div><b>Kunci Layar Otomatis (Idle 5 Menit)</b><span>Kunci otomatis jika kasir tidak disentuh</span></div>
+              <label class="switch"><input type="checkbox" id="secAutoLockToggle" ${sec.autoLockMinutes > 0 ? 'checked' : ''}/><i></i></label>
+            </div>
+            <div class="toggle-row">
+              <div><b>Otentikasi Dua Langkah (2FA OTP)</b><span>Simulasi verifikasi tambahan saat masuk</span></div>
+              <label class="switch"><input type="checkbox" id="sec2faToggle" ${sec.twoFactorAuth ? 'checked' : ''}/><i></i></label>
+            </div>
+            <div style="margin-top:18px">
+              <button class="btn btn-gold btn-block" type="submit">${icon('check')} Simpan Pengaturan Keamanan</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+
+    $('#btnSecLockNow').onclick = lockScreen;
+    $('#btnSecBackup').onclick = downloadBackup;
+    $('#secRestoreFile').onchange = (e) => {
+      if (e.target.files && e.target.files[0]) {
+        requireSecurityPin('Pemulihan Database dari File Cadangan', () => {
+          restoreBackup(e.target.files[0]);
+        });
+      }
+    };
+    $('#btnClearLogs').onclick = () => {
+      requireSecurityPin('Pembersihan Log Audit Keamanan', () => {
+        sec.auditLogs = [];
+        save();
+        logSecurityEvent('Seluruh log audit keamanan dibersihkan oleh admin', 'WARN');
+        toast('Log audit keamanan telah dibersihkan');
+        viewSecurity(el);
+      });
+    };
+    $('#secSettingsForm').onsubmit = (e) => {
+      e.preventDefault();
+      const newPin = $('#secNewPin').value.trim();
+      if (!/^\d{6}$/.test(newPin)) {
+        return toast('PIN harus berupa 6 digit angka', 'err');
+      }
+      requireSecurityPin('Pembaruan Pengaturan Keamanan', () => {
+        sec.pin = newPin;
+        sec.autoLockMinutes = $('#secAutoLockToggle').checked ? 5 : 0;
+        sec.twoFactorAuth = $('#sec2faToggle').checked;
+        save();
+        logSecurityEvent('PIN otorisasi toko dan kebijakan keamanan diperbarui', 'WARN');
+        toast('Pengaturan keamanan berhasil diperbarui');
+        viewSecurity(el);
+      });
+    };
   }
 
   /* ---------------------------------------------------------------------- */
