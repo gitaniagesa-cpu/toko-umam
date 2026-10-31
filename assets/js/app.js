@@ -496,12 +496,13 @@
               <div class="input-icon">${icon('lock')}<input class="input" id="lgPw" type="password" placeholder="••••••••" required /></div>
             </div>
             <button class="btn btn-gold btn-block" type="submit" id="loginSubmitBtn">Masuk ke Sistem</button>
+            ${(!db.security || !db.security.hideDemoGuide) ? `
             <div class="demo-accounts">
-              <div class="label">Akun Demo · klik untuk masuk</div>
+              <div class="label">Bantuan Pengisian Identitas · Tetap Wajib Sandi</div>
               <div class="demo-grid">
-                ${demos.map((u) => `<button type="button" class="demo-btn" data-demo="${u.id}"><b>${ROLE_META[u.role].label}</b><span>${esc(u.name)}</span></button>`).join('')}
+                ${demos.map((u) => `<button type="button" class="demo-btn" data-demo="${u.id}"><b>${ROLE_META[u.role].label}</b><span style="font-size:11px">${esc(u.email)}</span></button>`).join('')}
               </div>
-            </div>
+            </div>` : ''}
           </form>
         </section>
       </div>`;
@@ -547,7 +548,7 @@
         (digits.length >= 8 && u.phone.replace(/\D/g, '').replace(/^62/, '0') === digits.replace(/^62/, '0')));
       
       const pwd = $('#lgPw').value;
-      const expectedPwd = (user && user.password_custom) || DEMO_PASSWORD;
+      const expectedPwd = (user && user.password) || DEMO_PASSWORD;
 
       if (!user || pwd !== expectedPwd) {
         if (!db.security) db.security = clone(window.KOPMA_SEED.security);
@@ -576,11 +577,13 @@
       logSecurityEvent(`Autentikasi login berhasil untuk ${user.name}`, 'INFO', user.name);
       login(user);
     });
+
     $$('[data-demo]').forEach((b) => b.addEventListener('click', () => {
-      if (checkLockout()) return;
       const u = userById(+b.dataset.demo);
-      logSecurityEvent(`Login cepat via akun demo: ${u.name}`, 'INFO', u.name);
-      login(u);
+      $('#lgId').value = u.email;
+      $('#lgPw').value = '';
+      $('#lgPw').focus();
+      toast(`Identitas ${ROLE_META[u.role].label} dipilih. Silakan masukkan kata sandi.`);
     }));
   }
 
@@ -1321,17 +1324,26 @@
         </div>
 
         <div class="card card-pad">
-          <h3 style="font-family:var(--font-display);font-size:22px;font-weight:600;margin-bottom:6px">Pengaturan Kredensial Toko</h3>
-          <p class="muted" style="font-size:12.5px;margin-bottom:18px">Perbarui PIN otorisasi pencairan dana & kunci konfigurasi.</p>
+          <h3 style="font-family:var(--font-display);font-size:22px;font-weight:600;margin-bottom:6px">Pengaturan Kredensial & Sandi</h3>
+          <p class="muted" style="font-size:12.5px;margin-bottom:18px">Perbarui PIN otorisasi dan kata sandi akun pemilik toko.</p>
           <form id="secSettingsForm">
             <div class="field">
               <label>PIN Otorisasi Toko (6 Digit)</label>
               <div class="input-icon">${icon('lock')}<input class="input mono" id="secNewPin" type="password" maxlength="6" value="${esc(sec.pin || '123456')}" required style="letter-spacing:4px"/></div>
               <span class="muted" style="font-size:11px">Digunakan saat menyetujui pinjaman & mengubah kunci Midtrans.</span>
             </div>
+            <div class="field" style="margin-top:14px">
+              <label>Kata Sandi Baru Akun Saya (${esc(currentUser().name)})</label>
+              <div class="input-icon">${icon('lock')}<input class="input" id="secNewPass" type="password" placeholder="Kosongkan jika tidak ingin diubah" /></div>
+              <span class="muted" style="font-size:11px">Ganti agar hanya Anda yang bisa login sebagai ${ROLE_META[currentUser().role].label}.</span>
+            </div>
             <div class="toggle-row" style="margin-top:12px">
               <div><b>Kunci Layar Otomatis (Idle 5 Menit)</b><span>Kunci otomatis jika kasir tidak disentuh</span></div>
               <label class="switch"><input type="checkbox" id="secAutoLockToggle" ${sec.autoLockMinutes > 0 ? 'checked' : ''}/><i></i></label>
+            </div>
+            <div class="toggle-row">
+              <div><b>Sembunyikan Bantuan Akun di Login</b><span>Mode privat: tidak ada kartu demo di halaman masuk</span></div>
+              <label class="switch"><input type="checkbox" id="secHideDemoToggle" ${sec.hideDemoGuide ? 'checked' : ''}/><i></i></label>
             </div>
             <div class="toggle-row">
               <div><b>Otentikasi Dua Langkah (2FA OTP)</b><span>Simulasi verifikasi tambahan saat masuk</span></div>
@@ -1372,7 +1384,17 @@
       requireSecurityPin('Pembaruan Pengaturan Keamanan', () => {
         sec.pin = newPin;
         sec.autoLockMinutes = $('#secAutoLockToggle').checked ? 5 : 0;
+        sec.hideDemoGuide = $('#secHideDemoToggle').checked;
         sec.twoFactorAuth = $('#sec2faToggle').checked;
+
+        const newPass = $('#secNewPass').value.trim();
+        if (newPass) {
+          const u = currentUser();
+          u.password = newPass;
+          logSecurityEvent(`Kata sandi akun ${u.name} berhasil diperbarui`, 'WARN');
+          toast('Kata sandi akun Anda berhasil diperbarui!');
+        }
+
         save();
         logSecurityEvent('PIN otorisasi toko dan kebijakan keamanan diperbarui', 'WARN');
         toast('Pengaturan keamanan berhasil diperbarui');
