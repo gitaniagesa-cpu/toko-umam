@@ -18,6 +18,14 @@
       const saved = JSON.parse(localStorage.getItem(STORE_KEY));
       if (saved && saved.users) {
         if (!saved.security) saved.security = clone(window.KOPMA_SEED.security);
+        if (saved.products && window.KOPMA_SEED.products) {
+          const existingIds = new Set(saved.products.map((p) => p.id));
+          window.KOPMA_SEED.products.forEach((p) => {
+            if (!existingIds.has(p.id)) {
+              saved.products.push(clone(p));
+            }
+          });
+        }
         return saved;
       }
     } catch (e) { /* abaikan */ }
@@ -280,8 +288,60 @@
     refresh: '<path d="M3 12a9 9 0 0 1 15.5-6.3L21 8M21 3v5h-5M21 12a9 9 0 0 1-15.5 6.3L3 16M3 21v-5h5"/>',
     user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
     trash: '<path d="M4 7h16M10 11v6M14 11v6M5 7l1 13a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1l1-13M9 7V4h6v3"/>',
+    tag: '<path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z"/><path d="M7 7h.01"/>',
+    sliders: '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>',
+    store: '<path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8M2 7h20M10 12h4"/>',
   };
   const icon = (n, cls = '') => `<svg class="ico ${cls}" viewBox="0 0 24 24">${P[n] || ''}</svg>`;
+
+  function renderQrSvg(data, size = 180) {
+    const N = 25;
+    const grid = Array.from({ length: N }, () => Array(N).fill(false));
+    function putFinder(r0, c0) {
+      for (let r = 0; r < 7; r++) {
+        for (let c = 0; c < 7; c++) {
+          const edge = (r === 0 || r === 6 || c === 0 || c === 6);
+          const inner = (r >= 2 && r <= 4 && c >= 2 && c <= 4);
+          grid[r0 + r][c0 + c] = edge || inner;
+        }
+      }
+    }
+    putFinder(0, 0);
+    putFinder(0, N - 7);
+    putFinder(N - 7, 0);
+    for (let i = 8; i < N - 8; i++) {
+      grid[6][i] = (i % 2 === 0);
+      grid[i][6] = (i % 2 === 0);
+    }
+    let h = 0;
+    for (let i = 0; i < data.length; i++) h = (h * 31 + data.charCodeAt(i)) >>> 0;
+    for (let r = 0; r < N; r++) {
+      for (let c = 0; c < N; c++) {
+        const inTL = r < 8 && c < 8;
+        const inTR = r < 8 && c >= N - 8;
+        const inBL = r >= N - 8 && c < 8;
+        const inCenter = r >= 10 && r <= 14 && c >= 10 && c <= 14;
+        if (inTL || inTR || inBL || inCenter) continue;
+        h = (h * 1664525 + 1013904223) >>> 0;
+        grid[r][c] = (h % 3 === 0 || (r + c) % 2 === 0);
+      }
+    }
+    const cell = (size / N).toFixed(2);
+    let rects = '';
+    for (let r = 0; r < N; r++) {
+      for (let c = 0; c < N; c++) {
+        if (grid[r][c]) {
+          rects += `<rect x="${(c * cell)}" y="${(r * cell)}" width="${cell}" height="${cell}" fill="#131417"/>`;
+        }
+      }
+    }
+    return `
+      <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="border-radius:12px;background:#fff;padding:10px;box-shadow:0 8px 24px rgba(0,0,0,0.5)">
+        ${rects}
+        <rect x="${size / 2 - 16}" y="${size / 2 - 16}" width="32" height="32" rx="7" fill="#cfb280" stroke="#fff" stroke-width="2.5"/>
+        <text x="${size / 2}" y="${size / 2 + 6}" font-family="Georgia,serif" font-weight="700" font-size="18" fill="#131417" text-anchor="middle">K</text>
+      </svg>`;
+  }
 
   /* ---------------------------------------------------------------------- */
   /* Toast & Modal                                                          */
@@ -432,12 +492,12 @@
     dashboard: { title: 'Dashboard Eksekutif', icon: 'dashboard', roles: ['admin', 'pengurus'], render: viewDashboard },
     pos: { title: 'Kasir Mart', icon: 'pos', roles: ['admin', 'kasir'], render: viewPos, kbd: 'F2' },
     members: { title: 'Data Anggota', icon: 'users', roles: ['admin', 'kasir', 'pengurus'], render: viewMembers },
-    products: { title: 'Produk & Stok', icon: 'box', roles: ['admin', 'pengurus'], render: viewProducts },
-    transactions: { title: 'Riwayat Transaksi', icon: 'receipt', roles: ['admin', 'kasir', 'pengurus'], render: viewTransactions },
+    products: { title: 'Katalog Produk & UMKM', icon: 'box', roles: ['admin', 'pengurus', 'anggota', 'kasir'], render: viewProducts },
+    transactions: { title: 'Riwayat Transaksi', icon: 'receipt', roles: ['admin', 'kasir', 'pengurus', 'anggota'], render: viewTransactions },
     shu: { title: 'Laporan SHU', icon: 'chart', roles: ['admin', 'pengurus'], render: viewShu },
     loans: { title: 'Persetujuan Pinjaman', icon: 'shield', roles: ['admin', 'pengurus'], render: viewLoans },
     payment: { title: 'Payment Gateway', icon: 'card', roles: ['admin'], render: viewPayment },
-    security: { title: 'Pusat Keamanan', icon: 'shield', roles: ['admin', 'pengurus'], render: viewSecurity },
+    security: { title: 'Pusat Keamanan', icon: 'shield', roles: ['admin', 'pengurus', 'kasir', 'anggota'], render: viewSecurity },
     home: { title: 'Beranda Anggota', icon: 'wallet', roles: ['anggota'], render: viewMemberHome },
   };
   const NAV_GROUPS = [
@@ -613,6 +673,35 @@
         `<a href="#/${k}" class="${k === r ? 'active' : ''}">${icon(ROUTES[k].icon)}<span>${ROUTES[k].title}</span>${ROUTES[k].kbd ? `<span class="kbd">${ROUTES[k].kbd}</span>` : ''}</a>`).join('');
     }).join('');
 
+    const bottomCandidates = (user.role === 'anggota') ? [
+      { k: 'home', label: 'Kartu VIP', ic: 'wallet' },
+      { k: 'products', label: 'Katalog UMKM', ic: 'box' },
+      { k: 'transactions', label: 'Transaksi', ic: 'receipt' },
+      { k: 'security', label: 'Keamanan', ic: 'shield' },
+    ] : [
+      { k: (user.role === 'kasir' ? 'pos' : 'dashboard'), label: (user.role === 'kasir' ? 'Kasir POS' : 'Dashboard'), ic: (user.role === 'kasir' ? 'pos' : 'dashboard') },
+      { k: 'pos', label: 'Kasir Mart', ic: 'pos' },
+      { k: 'products', label: 'Produk UMKM', ic: 'box' },
+      { k: 'security', label: 'Keamanan', ic: 'shield' },
+    ];
+    const seen = new Set();
+    const bottomItems = [];
+    bottomCandidates.forEach((item) => {
+      if (!seen.has(item.k) && ROUTES[item.k] && ROUTES[item.k].roles.includes(user.role)) {
+        seen.add(item.k);
+        bottomItems.push(item);
+      }
+    });
+
+    const bottomNavHtml = `
+      <nav class="bottom-bar">
+        ${bottomItems.map((b) => `
+          <a href="#/${b.k}" class="bottom-item ${b.k === r ? 'active' : ''}">
+            ${icon(b.ic)}
+            <span>${b.label}</span>
+          </a>`).join('')}
+      </nav>`;
+
     $('#root').innerHTML = `
       <div class="app">
         <aside class="sidebar" id="sidebar">
@@ -643,6 +732,7 @@
           </header>
           <div class="content view" id="view"></div>
         </main>
+        ${bottomNavHtml}
       </div>`;
 
     $('#logoutBtn').addEventListener('click', logout);
@@ -758,7 +848,7 @@
   }
 
   function viewPos(el) {
-    const cats = ['Semua', ...new Set(db.products.map((p) => p.category))];
+    const cats = ['Semua', 'Konsinyasi Mahasiswa', ...new Set(db.products.map((p) => p.category).filter((c) => c !== 'Konsinyasi Mahasiswa'))];
     const s = db.paymentSettings;
     const methods = [
       { k: 'TUNAI', label: 'Tunai', ic: 'cash', on: true },
@@ -776,7 +866,7 @@
             <div class="input-icon">${icon('search')}<input class="input" id="posSearch" placeholder="Cari nama produk, PLU, atau scan barcode…  (F1)" value="${esc(ui.posQuery)}" /></div>
             <button class="btn" id="btnMember">${icon('user')} Pilih Anggota <span class="kbd">F3</span></button>
           </div>
-          <div class="chips">${cats.map((c) => `<button class="chip ${c === ui.posCategory ? 'active' : ''}" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}</div>
+          <div class="chips">${cats.map((c) => `<button class="chip ${c === ui.posCategory ? 'active' : ''}" data-cat="${esc(c)}">${esc(c === 'Konsinyasi Mahasiswa' ? '⭐ UMKM Mahasiswa' : c)}</button>`).join('')}</div>
           <div class="products" id="productGrid"></div>
           <div class="shortcuts">
             <span><span class="kbd">F1</span> Cari produk</span><span><span class="kbd">F3</span> Anggota</span>
@@ -800,13 +890,17 @@
       const list = db.products.filter((p) =>
         (ui.posCategory === 'Semua' || p.category === ui.posCategory) &&
         (!q || p.name.toLowerCase().includes(q) || p.plu_code.includes(q) || p.barcode.includes(q)));
-      $('#productGrid').innerHTML = list.length ? list.map((p) => `
+      $('#productGrid').innerHTML = list.length ? list.map((p) => {
+        const isUmkm = p.is_consignment || p.category === 'Konsinyasi Mahasiswa';
+        return `
         <div class="product" data-add="${p.id}">
-          <div class="p-top"><span class="kbd">PLU ${p.plu_code}</span>${p.stock <= p.min_stock ? '<span class="badge b-rose plain">Stok tipis</span>' : p.is_consignment ? '<span class="badge b-slate plain">Konsinyasi</span>' : ''}</div>
+          <div class="p-top"><span class="kbd">PLU ${p.plu_code}</span>${isUmkm ? '<span class="badge-umkm">⭐ UMKM Mhs</span>' : (p.stock <= p.min_stock ? '<span class="badge b-rose plain">Stok tipis</span>' : '')}</div>
           <div class="p-name">${esc(p.name)}</div>
           <div class="p-price">${rp(p.sell_price)}</div>
           <div class="p-meta"><span>Stok ${p.stock}</span><span>Member −${rp(p.member_discount)}</span></div>
-        </div>`).join('') : '<div class="empty">Produk tidak ditemukan.</div>';
+          ${isUmkm ? `<div style="font-size:11px;color:var(--gold);margin-top:-2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Oleh: ${esc(p.supplier_name)}</div>` : ''}
+        </div>`;
+      }).join('') : '<div class="empty">Produk tidak ditemukan.</div>';
     };
 
     const renderCart = () => {
@@ -870,19 +964,42 @@
       const isCash = ui.payMethod === 'TUNAI';
       const isMid = ui.payMethod.startsWith('MIDTRANS');
       modal({
-        title: 'Konfirmasi Pembayaran',
+        title: 'Konfirmasi Pembayaran Kasir',
         body: `
-          <div style="text-align:center;margin-bottom:18px"><div class="muted" style="font-size:12px;letter-spacing:1.5px">TOTAL TAGIHAN</div><div style="font-family:var(--font-display);font-size:40px;font-weight:600;color:var(--gold)">${rp(t.total)}</div><span class="badge ${PAY_META[ui.payMethod].badge}">${PAY_META[ui.payMethod].label}</span></div>
-          ${isCash ? `<div class="field"><label>Uang diterima</label><input class="input" id="cashIn" type="number" min="${t.total}" value="${Math.ceil(t.total / 10000) * 10000}" /></div><div class="sum-row"><span>Kembalian</span><b id="change"></b></div>` : ''}
+          <div style="text-align:center;margin-bottom:18px"><div class="muted" style="font-size:12px;letter-spacing:1.5px">TOTAL TAGIHAN</div><div style="font-family:var(--font-display);font-size:42px;font-weight:600;color:var(--gold)">${rp(t.total)}</div><span class="badge ${PAY_META[ui.payMethod].badge}">${PAY_META[ui.payMethod].label}</span></div>
+          ${isCash ? `
+            <div class="field" style="margin-bottom:8px">
+              <label>Uang Tunai Diterima (Rp)</label>
+              <input class="input mono" id="cashIn" type="number" min="${t.total}" value="${Math.ceil(t.total / 10000) * 10000}" style="font-size:22px;font-weight:700;color:var(--gold);letter-spacing:1px" />
+            </div>
+            <div class="quick-cash-row">
+              <button type="button" class="qc-btn pas" data-cash="${t.total}">Uang Pas</button>
+              <button type="button" class="qc-btn" data-addcash="10000">+10 rb</button>
+              <button type="button" class="qc-btn" data-addcash="20000">+20 rb</button>
+              <button type="button" class="qc-btn" data-addcash="50000">+50 rb</button>
+              <button type="button" class="qc-btn" data-addcash="100000">+100 rb</button>
+              <button type="button" class="qc-btn" data-cash="50000">Rp 50.000</button>
+              <button type="button" class="qc-btn" data-cash="100000">Rp 100.000</button>
+            </div>
+            <div style="background:var(--bg-2);border:1px dashed var(--line-2);border-radius:12px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+              <span style="font-size:13px;color:var(--text-2);font-weight:600">Kembalian Pembeli</span>
+              <b id="change" style="font-family:var(--font-display);font-size:26px;color:var(--sage)">Rp 0</b>
+            </div>` : ''}
           ${isMid ? `<div class="insight" style="text-align:center">${icon('qr', '')}<p style="margin-top:6px">Simulasi Midtrans Snap (${esc(db.paymentSettings.environment)}).<br/>Pada versi produksi, popup Snap akan tampil di sini.</p></div>` : ''}
           ${ui.payMethod === 'SALDO_SIMPANAN' ? `<div class="insight"><p>Saldo sukarela ${esc(ui.member.name)} akan dipotong: <b>${rp(ui.member.simpanan_sukarela)}</b> → <b class="gold">${rp(ui.member.simpanan_sukarela - t.total)}</b></p></div>` : ''}`,
-        foot: `<button class="btn" data-close>Batal</button><button class="btn btn-gold" id="confirmPay">${icon('check')} Konfirmasi</button>`,
+        foot: `<button class="btn" data-close>Batal</button><button class="btn btn-gold" id="confirmPay">${icon('check')} Konfirmasi Bayar</button>`,
         onMount: (m) => {
           const ci = $('#cashIn', m);
           const upd = () => { if (ci) $('#change', m).textContent = rp(Math.max(0, (+ci.value || 0) - t.total)); };
-          if (ci) { ci.addEventListener('input', upd); upd(); ci.select(); }
+          if (ci) {
+            ci.addEventListener('input', upd);
+            upd();
+            ci.select();
+            $$('[data-cash]', m).forEach((b) => b.onclick = () => { ci.value = b.dataset.cash; upd(); });
+            $$('[data-addcash]', m).forEach((b) => b.onclick = () => { ci.value = (+ci.value || 0) + (+b.dataset.addcash); upd(); });
+          }
           $('#confirmPay', m).onclick = () => {
-            if (ci && +ci.value < t.total) return toast('Uang diterima kurang', 'err');
+            if (ci && +ci.value < t.total) return toast('Uang diterima kurang dari total belanja', 'err');
             finalize(t, ci ? +ci.value : t.total);
           };
         },
@@ -1015,42 +1132,241 @@
   }
 
   /* ---------------------------------------------------------------------- */
-  /* View: Produk & Stok                                                    */
+  /* View: Produk & Stok (Katalog Toko & UMKM Mahasiswa)                    */
   /* ---------------------------------------------------------------------- */
   function viewProducts(el) {
     const plans = restockPlans();
     const value = db.products.reduce((s, p) => s + p.stock * p.cost_price, 0);
+    const umkmItems = db.products.filter((p) => p.is_consignment || p.category === 'Konsinyasi Mahasiswa');
+    const umkmValue = umkmItems.reduce((s, p) => s + p.stock * p.cost_price, 0);
+    const u = currentUser();
+    const isStaff = u && (u.role === 'admin' || u.role === 'pengurus' || u.role === 'kasir');
+    let activeFilter = 'all'; // 'all', 'store', 'umkm'
+
     el.innerHTML = `
       <div class="grid g-4">
-        ${statCard('Total SKU', db.products.length, 'box', `${db.products.filter((p) => p.is_consignment).length} produk konsinyasi`)}
+        ${statCard('Total SKU Produk', db.products.length, 'box', `${umkmItems.length} produk karya UMKM mahasiswa`)}
         ${statCard('Nilai Persediaan', rpShort(value), 'wallet', 'Berdasarkan harga pokok')}
+        ${statCard('Bagi Hasil UMKM (85%)', rpShort(umkmValue), 'sparkle', `${umkmItems.length} produk konsinyasi aktif`)}
         ${statCard('Perlu Restock', plans.length, 'alert', `<span class="down">${plans.filter((p) => p.critical).length} kritis</span>`)}
-        ${statCard('Anggaran Restock', rpShort(plans.reduce((s, p) => s + p.budget, 0)), 'truck', 'Estimasi kebutuhan 14 hari')}
       </div>
+
+      <div class="insight mt" style="background:linear-gradient(135deg,rgba(207,178,128,0.1),rgba(212,156,85,0.05));border-color:rgba(207,178,128,0.3)">
+        <div class="head">
+          <div class="avatar" style="width:32px;height:32px;font-size:14px;background:var(--gold-soft);color:var(--gold)">${icon('star')}</div>
+          <h4>Pemberdayaan Ekonomi Mahasiswa & UMKM Kampus</h4>
+        </div>
+        <p>KOPMA Mart menerapkan sistem konsinyasi adil: <b>85% hasil penjualan</b> langsung menjadi hak mahasiswa kreator, dan <b>15%</b> untuk pemeliharaan fasilitas mart. Anggota koperasi juga berhak mendapatkan <b>diskon khusus anggota</b> untuk setiap produk UMKM!</p>
+      </div>
+
       <div class="card mt">
-        <div class="card-head"><div><h3>Inventori KOPMA Mart</h3><p>Margin, stok, dan reorder point setiap produk</p></div><div class="spacer"></div>
-          <div class="input-icon" style="width:min(300px,100%)">${icon('search')}<input class="input" id="pSearch" placeholder="Cari produk…" value="${esc(ui.productQuery)}"/></div></div>
-        <div class="card-body table-wrap"><table>
-          <thead><tr><th>PLU</th><th>Produk</th><th>Kategori</th><th class="right">Harga Pokok</th><th class="right">Harga Jual</th><th class="right">Margin</th><th>Stok</th><th>Status</th></tr></thead>
-          <tbody id="pBody"></tbody></table></div>
+        <div class="card-head" style="flex-wrap:wrap;gap:14px">
+          <div>
+            <h3>Katalog Inventori Toko & Produk UMKM</h3>
+            <p>Daftar seluruh barang retail, kuliner mahasiswa, dan merchandise resmi</p>
+          </div>
+          <div class="spacer"></div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <div class="segmented" id="prodFilterTabs">
+              <button class="active" data-f="all">Semua (${db.products.length})</button>
+              <button data-f="umkm">⭐ UMKM Mhs (${umkmItems.length})</button>
+              <button data-f="store">Produk Toko (${db.products.length - umkmItems.length})</button>
+            </div>
+            ${isStaff ? `<button class="btn btn-gold btn-sm" id="btnRegisterUmkm">${icon('plus')} + Daftarkan Produk UMKM</button>` : ''}
+          </div>
+        </div>
+        <div style="padding:14px 24px 0">
+          <div class="input-icon" style="width:100%">${icon('search')}<input class="input" id="pSearch" placeholder="Cari nama produk, kreator UMKM, PLU, atau kategori…" value="${esc(ui.productQuery)}"/></div>
+        </div>
+        <div class="card-body table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>PLU</th>
+                <th>Nama Produk & Produsen</th>
+                <th>Kategori</th>
+                <th class="right">Harga Pokok (Bagi Hasil)</th>
+                <th class="right">Harga Jual</th>
+                <th class="right">Margin Toko</th>
+                <th>Stok Toko</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="pBody"></tbody>
+          </table>
+        </div>
       </div>`;
+
     const draw = () => {
-      const q = ui.productQuery.toLowerCase();
-      $('#pBody').innerHTML = db.products.filter((p) => !q || p.name.toLowerCase().includes(q) || p.plu_code.includes(q) || p.category.toLowerCase().includes(q)).map((p) => {
+      const q = ui.productQuery.toLowerCase().trim();
+      const list = db.products.filter((p) => {
+        const isUmkm = p.is_consignment || p.category === 'Konsinyasi Mahasiswa';
+        if (activeFilter === 'umkm' && !isUmkm) return false;
+        if (activeFilter === 'store' && isUmkm) return false;
+        if (!q) return true;
+        return (
+          p.name.toLowerCase().includes(q) ||
+          p.plu_code.includes(q) ||
+          p.category.toLowerCase().includes(q) ||
+          (p.supplier_name && p.supplier_name.toLowerCase().includes(q))
+        );
+      });
+
+      $('#pBody').innerHTML = list.length ? list.map((p) => {
         const plan = plans.find((x) => x.id === p.id);
         const margin = ((p.sell_price - p.cost_price) / p.sell_price) * 100;
-        return `<tr>
-          <td class="mono">${p.plu_code}</td>
-          <td><b>${esc(p.name)}</b><span class="sub">${esc(p.supplier_name)} · ${esc(p.supplier_phone)}</span></td>
-          <td>${esc(p.category)}</td>
-          <td class="right">${rp(p.cost_price)}</td>
-          <td class="right"><b>${rp(p.sell_price)}</b></td>
-          <td class="right">${margin.toFixed(1)}%</td>
-          <td>${p.stock}<div class="progress" style="margin-top:6px;width:80px"><span style="width:${Math.min(100, (p.stock / (p.min_stock * 3)) * 100)}%;background:${plan ? (plan.critical ? 'var(--rose)' : 'var(--amber)') : 'var(--sage)'}"></span></div></td>
-          <td>${plan ? `<span class="badge ${plan.critical ? 'b-rose' : 'b-amber'}">${plan.critical ? 'Kritis' : 'Siaga'}</span>` : '<span class="badge b-sage">Aman</span>'}</td></tr>`;
-      }).join('');
+        const isUmkm = p.is_consignment || p.category === 'Konsinyasi Mahasiswa';
+        return `
+          <tr>
+            <td class="mono">${p.plu_code}</td>
+            <td>
+              <div style="display:flex;align-items:center;gap:8px">
+                <b>${esc(p.name)}</b>
+                ${isUmkm ? '<span class="badge-umkm">⭐ UMKM</span>' : ''}
+              </div>
+              <span class="sub">${esc(p.supplier_name || 'KOPMA Store')} · ${esc(p.supplier_phone || '-')}</span>
+            </td>
+            <td>${esc(p.category)}</td>
+            <td class="right">${rp(p.cost_price)}</td>
+            <td class="right">
+              <b>${rp(p.sell_price)}</b>
+              ${p.member_discount ? `<span class="sub up">Member −${rp(p.member_discount)}</span>` : ''}
+            </td>
+            <td class="right">${margin.toFixed(1)}%</td>
+            <td>
+              ${p.stock}
+              <div class="progress" style="margin-top:6px;width:80px">
+                <span style="width:${Math.min(100, (p.stock / (p.min_stock * 3)) * 100)}%;background:${plan ? (plan.critical ? 'var(--rose)' : 'var(--amber)') : 'var(--sage)'}"></span>
+              </div>
+            </td>
+            <td>
+              ${plan ? `<span class="badge ${plan.critical ? 'b-rose' : 'b-amber'}">${plan.critical ? 'Kritis' : 'Siaga'}</span>` : '<span class="badge b-sage">Aman</span>'}
+            </td>
+          </tr>`;
+      }).join('') : '<tr><td colspan="8" class="empty">Tidak ada produk yang cocok dengan pencarian / filter.</td></tr>';
     };
+
     $('#pSearch').addEventListener('input', (e) => { ui.productQuery = e.target.value; draw(); });
+
+    $$('#prodFilterTabs button').forEach((btn) => {
+      btn.onclick = () => {
+        $$('#prodFilterTabs button').forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+        activeFilter = btn.dataset.f;
+        draw();
+      };
+    });
+
+    const regBtn = $('#btnRegisterUmkm');
+    if (regBtn) {
+      regBtn.onclick = () => {
+        modal({
+          title: 'Daftarkan Produk UMKM Mahasiswa Baru',
+          body: `
+            <div class="field">
+              <label>Nama Produk UMKM / Kuliner / Merchandise</label>
+              <input class="input" id="newProdName" placeholder="Contoh: Sambal Cumi Juara Mahasiswa" autofocus />
+            </div>
+            <div class="form-grid">
+              <div class="field">
+                <label>Kategori</label>
+                <select class="input" id="newProdCat">
+                  <option value="Konsinyasi Mahasiswa">Konsinyasi Mahasiswa</option>
+                  <option value="Snack & Roti">Snack & Roti</option>
+                  <option value="Minuman">Minuman Segar</option>
+                  <option value="Merchandise">Merchandise & Kreatif</option>
+                  <option value="ATK & Kampus">ATK & Kampus</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Harga Jual Toko (Rp)</label>
+                <input class="input" type="number" id="newProdSell" placeholder="15000" step="500" />
+              </div>
+            </div>
+            <div class="form-grid">
+              <div class="field">
+                <label>Harga Pokok / Bagi Hasil Mhs (85%)</label>
+                <input class="input" type="number" id="newProdCost" placeholder="12750" step="500" />
+              </div>
+              <div class="field">
+                <label>Potongan Diskon Anggota (Rp)</label>
+                <input class="input" type="number" id="newProdDisc" value="1000" step="500" />
+              </div>
+            </div>
+            <div class="form-grid">
+              <div class="field">
+                <label>Nama Mahasiswa / Produsen UMKM</label>
+                <input class="input" id="newProdSupplier" placeholder="Nama mahasiswa / UKM" />
+              </div>
+              <div class="field">
+                <label>Nomor WhatsApp Produsen</label>
+                <input class="input" id="newProdPhone" placeholder="081234567890" />
+              </div>
+            </div>
+            <div class="field">
+              <label>Jumlah Stok Awal Dititipkan</label>
+              <input class="input" type="number" id="newProdStock" value="20" min="1" />
+            </div>
+            <div class="insight" style="font-size:12px;margin-top:10px">
+              💡 <i>Produk langsung memiliki kode PLU & Barcode otomatis, dan seketika bisa ditransaksikan di Kasir POS dan dilihat oleh anggota.</i>
+            </div>`,
+          foot: `<button class="btn" data-close>Batal</button><button class="btn btn-gold" id="btnSaveNewUmkm">${icon('check')} Daftarkan Produk</button>`,
+          onMount: (m) => {
+            const sellIn = $('#newProdSell', m);
+            const costIn = $('#newProdCost', m);
+            if (sellIn && costIn) {
+              sellIn.oninput = () => {
+                const s = +sellIn.value || 0;
+                if (s > 0) costIn.value = Math.round(s * 0.85);
+              };
+            }
+            $('#btnSaveNewUmkm', m).onclick = () => {
+              const name = $('#newProdName', m).value.trim();
+              const sell = +$('#newProdSell', m).value || 0;
+              const cost = +$('#newProdCost', m).value || Math.round(sell * 0.85);
+              const disc = +$('#newProdDisc', m).value || 0;
+              const supp = $('#newProdSupplier', m).value.trim() || 'Mahasiswa Mitra KOPMA';
+              const phone = $('#newProdPhone', m).value.trim() || '-';
+              const stock = +$('#newProdStock', m).value || 10;
+              const cat = $('#newProdCat', m).value;
+
+              if (!name) return toast('Nama produk harus diisi', 'err');
+              if (sell <= 0) return toast('Harga jual harus lebih dari Rp 0', 'err');
+
+              const nextId = Math.max(0, ...db.products.map((p) => p.id)) + 1;
+              const nextPlu = String(3000 + nextId);
+              const nextBarcode = '8992388' + String(30000 + nextId);
+
+              const newProduct = {
+                id: nextId,
+                plu_code: nextPlu,
+                barcode: nextBarcode,
+                name,
+                category: cat,
+                cost_price: cost,
+                sell_price: sell,
+                member_discount: disc,
+                stock,
+                min_stock: 10,
+                avg_daily_sales: 5,
+                lead_time_days: 2,
+                is_consignment: 1,
+                supplier_name: supp,
+                supplier_phone: phone,
+              };
+
+              db.products.push(newProduct);
+              save();
+              logSecurityEvent(`Pendaftaran produk UMKM baru: ${name} (${supp})`, 'INFO');
+              closeModal();
+              toast(`Produk UMKM "${name}" berhasil didaftarkan!`);
+              viewProducts(el);
+            };
+          },
+        });
+      };
+    }
+
     draw();
   }
 
@@ -1404,51 +1720,200 @@
   }
 
   /* ---------------------------------------------------------------------- */
-  /* View: Beranda Anggota                                                  */
+  /* View: Beranda Anggota (Pengalaman Konsumen & Anggota Koperasi)          */
   /* ---------------------------------------------------------------------- */
   function viewMemberHome(el, user) {
-    const shu = shuEstimates().list.find((r) => r.user.id === user.id) || { total: 0 };
+    const shu = shuEstimates().list.find((r) => r.user.id === user.id) || { total: 0, jasaTrx: 0, jasaModal: 0 };
     const trx = db.transactions.filter((t) => t.user_id === user.id).sort((a, b) => b.created_at.localeCompare(a.created_at));
     const fin = db.finances.filter((f) => f.user_id === user.id);
+    const umkmProducts = db.products.filter((p) => p.is_consignment || p.category === 'Konsinyasi Mahasiswa');
+
     el.innerHTML = `
       <div class="grid g-main">
-        <div class="wallet">
-          <div class="w-label">Total Simpanan · ${esc(user.nim_nip)}</div>
-          <div class="w-value">${rp(totalSimpanan(user))}</div>
-          <div class="w-row">
-            <div><b>${rp(user.simpanan_pokok)}</b><span>Simpanan Pokok</span></div>
-            <div><b>${rp(user.simpanan_wajib)}</b><span>Simpanan Wajib</span></div>
-            <div><b>${rp(user.simpanan_sukarela)}</b><span>Simpanan Sukarela</span></div>
+        <!-- Kartu Anggota Digital VIP -->
+        <div class="vip-card">
+          <div class="vip-card-head">
+            <div class="vip-chip"></div>
+            <span class="badge b-gold plain" style="font-size:11px;letter-spacing:1.5px;padding:5px 12px">KOPMA VIP MEMBER</span>
           </div>
-          <div style="margin-top:24px;display:flex;gap:10px;position:relative"><button class="btn btn-gold" id="btnTopup">${icon('plus')} Top-Up Simpanan</button></div>
+          <div class="vip-card-num">${esc(user.nim_nip)} · ${esc(user.fakultas || 'Koperasi Mahasiswa')}</div>
+          <div class="vip-card-foot">
+            <div>
+              <div class="vip-card-name">${esc(user.name)}</div>
+              <div class="vip-card-nim">${esc(user.email)} · ${user.poin_belanja} Poin Belanja</div>
+            </div>
+            <button class="btn btn-gold btn-sm" id="btnShowQr" style="font-size:12px;box-shadow:0 4px 15px rgba(0,0,0,0.5)">
+              ${icon('qr')} Tampilkan QR Kasir
+            </button>
+          </div>
         </div>
-        <div class="grid" style="gap:20px">
-          ${statCard('Estimasi SHU Anda', rp(shu.total), 'sparkle', 'Berdasarkan belanja & simpanan')}
-          ${statCard('Poin Belanja', user.poin_belanja.toLocaleString('id-ID'), 'star', `Limit PayLater ${rpShort(user.limit_paylater)}`)}
+
+        <!-- Ringkasan Saldo Simpanan -->
+        <div class="card card-pad" style="display:flex;flex-direction:column;justify-content:space-between">
+          <div>
+            <div style="font-size:11.5px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted)">Total Saldo Simpanan</div>
+            <div style="font-family:var(--font-display);font-size:38px;font-weight:600;color:var(--gold);margin:6px 0 14px">${rp(totalSimpanan(user))}</div>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;font-size:12px">
+              <div><span class="muted">Pokok</span><b style="display:block;font-size:13px">${rpShort(user.simpanan_pokok)}</b></div>
+              <div><span class="muted">Wajib</span><b style="display:block;font-size:13px">${rpShort(user.simpanan_wajib)}</b></div>
+              <div><span class="muted">Sukarela</span><b style="display:block;font-size:13px;color:var(--sage)">${rpShort(user.simpanan_sukarela)}</b></div>
+            </div>
+          </div>
+          <div style="margin-top:16px;display:flex;gap:10px">
+            <button class="btn btn-gold btn-sm" style="flex:1" id="btnTopup">${icon('plus')} Top-Up Simpanan</button>
+          </div>
         </div>
       </div>
+
+      <!-- Simulasi SHU Interaktif -->
+      <div class="shu-sim-box mt">
+        <div class="card-head" style="padding:0 0 16px">
+          <div>
+            <h3>Kalkulator Simulasi SHU Interaktif</h3>
+            <p>Geser nilai belanja dan simpanan untuk melihat estimasi pembagian keuntungan SHU tahunan Anda</p>
+          </div>
+          <div class="spacer"></div>
+          <span class="badge b-gold plain">Transparan & Otomatis</span>
+        </div>
+        <div class="grid g-2">
+          <div>
+            <div class="sim-slider-row">
+              <div class="sim-slider-head">
+                <span>Rata-Rata Belanja Bulanan di Toko</span>
+                <b id="valSpend" class="gold">Rp 250.000 / bln</b>
+              </div>
+              <input type="range" class="sim-range" id="slideSpend" min="50000" max="2000000" step="25000" value="250000" />
+              <div class="muted" style="font-size:11.5px;margin-top:4px;display:flex;justify-content:space-between">
+                <span>Rp 50 rb</span><span>Rp 1 jt</span><span>Rp 2 jt</span>
+              </div>
+            </div>
+            <div class="sim-slider-row" style="margin-bottom:0">
+              <div class="sim-slider-head">
+                <span>Rencana Tambahan Simpanan Sukarela</span>
+                <b id="valSave" class="gold">Rp 1.000.000</b>
+              </div>
+              <input type="range" class="sim-range" id="slideSave" min="0" max="10000000" step="100000" value="1000000" />
+              <div class="muted" style="font-size:11.5px;margin-top:4px;display:flex;justify-content:space-between">
+                <span>Rp 0</span><span>Rp 5 jt</span><span>Rp 10 jt</span>
+              </div>
+            </div>
+          </div>
+          <div>
+            <div class="sim-result">
+              <div>
+                <span class="muted" style="font-size:11.5px;letter-spacing:1.2px;text-transform:uppercase">Estimasi SHU Diterima Anggota</span>
+                <div id="simTotalShu" style="margin:4px 0"><b>Rp 420.000</b></div>
+                <div class="muted" style="font-size:12px" id="simDetailShu">
+                  Jasa Usaha: Rp 245.000 · Jasa Modal: Rp 175.000
+                </div>
+              </div>
+              <div class="avatar" style="width:52px;height:52px;font-size:22px;background:var(--gold-soft);color:var(--gold);border-radius:14px">
+                ${icon('sparkle')}
+              </div>
+            </div>
+            <p class="muted" style="font-size:12px;margin-top:10px;line-height:1.4">
+              💡 <i>Keuntungan belanja di KOPMA Mart tidak hilang ke pihak luar, melainkan kembali utuh ke anggota melalui Sisa Hasil Usaha (SHU) setiap RAT tahunan.</i>
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Showcase Katalog Produk UMKM Mahasiswa -->
+      <div class="card mt">
+        <div class="card-head">
+          <div>
+            <h3>Katalog Belanja UMKM & Kuliner Mahasiswa</h3>
+            <p>Jajanan lezat dan karya kreatif mahasiswa dengan diskon khusus anggota</p>
+          </div>
+          <div class="spacer"></div>
+          <a href="#/products" class="btn btn-sm btn-ghost">Lihat Semua Produk (${db.products.length}) →</a>
+        </div>
+        <div class="card-body">
+          <div class="products" style="grid-template-columns:repeat(auto-fill, minmax(210px, 1fr))">
+            ${umkmProducts.slice(0, 8).map((p) => `
+              <div class="product" style="cursor:default">
+                <div class="p-top">
+                  <span class="badge-umkm">⭐ UMKM Mhs</span>
+                  <span class="kbd">Stok ${p.stock}</span>
+                </div>
+                <div class="p-name">${esc(p.name)}</div>
+                <div class="p-price">${rp(p.sell_price)}</div>
+                <div class="p-meta">
+                  <span class="up">Hemat ${rp(p.member_discount)} (Member)</span>
+                </div>
+                <div style="font-size:11.5px;color:var(--muted);margin-top:auto;padding-top:6px;border-top:1px dashed var(--line-2)">
+                  Oleh: <b style="color:var(--text-2)">${esc(p.supplier_name)}</b>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+
+      <!-- Riwayat Belanja & Mutasi -->
       <div class="grid g-2 mt">
         <div class="card">
-          <div class="card-head"><div><h3>Riwayat Belanja</h3><p>${trx.length} transaksi</p></div></div>
+          <div class="card-head"><div><h3>Riwayat Belanja Saya</h3><p>${trx.length} transaksi di kasir</p></div></div>
           <div class="card-body table-wrap"><table><tbody>
             ${trx.map((t) => `<tr><td><b class="mono">${esc(t.invoice_no)}</b><span class="sub">${fmtDate(t.created_at)}</span></td><td><span class="badge ${PAY_META[t.payment_method].badge}">${PAY_META[t.payment_method].label}</span></td><td class="right"><b>${rp(t.grand_total)}</b><span class="sub up">+${t.points_earned} poin</span></td></tr>`).join('') || '<tr><td class="empty">Belum ada transaksi.</td></tr>'}
           </tbody></table></div>
         </div>
         <div class="card">
-          <div class="card-head"><div><h3>Mutasi Simpanan</h3><p>Setoran & pinjaman</p></div></div>
+          <div class="card-head"><div><h3>Mutasi Simpanan</h3><p>Setoran & pemotongan saldo</p></div></div>
           <div class="card-body table-wrap"><table><tbody>
             ${fin.slice().reverse().map((f) => `<tr><td><b>${esc(f.notes)}</b><span class="sub">${esc(f.channel)}</span></td><td class="right"><b>${rp(f.amount)}</b><span class="sub">${f.status}</span></td></tr>`).join('') || '<tr><td class="empty">Belum ada mutasi.</td></tr>'}
           </tbody></table></div>
         </div>
       </div>`;
 
+    // Event: Show QR Code Modal
+    $('#btnShowQr').onclick = () => {
+      modal({
+        title: 'Kode QR Kartu Anggota',
+        body: `
+          <div style="text-align:center;padding:10px 0">
+            <div style="display:inline-block;margin-bottom:14px">
+              ${renderQrSvg(`${user.nim_nip}|${user.name}|${user.email}`, 220)}
+            </div>
+            <div style="font-family:var(--font-display);font-size:24px;font-weight:600;color:var(--gold)">${esc(user.name)}</div>
+            <div class="mono" style="font-size:14px;letter-spacing:1px;margin-bottom:8px">${esc(user.nim_nip)}</div>
+            <p class="muted" style="font-size:12.5px;max-width:320px;margin:0 auto">Tunjukkan QR ini pada scanner kasir KOPMA Mart saat bertransaksi untuk klaim diskon anggota & perolehan poin SHU.</p>
+          </div>`,
+        foot: `<button class="btn btn-gold btn-block" data-close>Tutup</button>`,
+      });
+    };
+
+    // Event: Interactive SHU Calculation
+    const spSlider = $('#slideSpend');
+    const saSlider = $('#slideSave');
+    const calcShu = () => {
+      const sp = +spSlider.value || 0;
+      const sa = +saSlider.value || 0;
+      $('#valSpend').textContent = `${rp(sp)} / bln`;
+      $('#valSave').textContent = rp(sa);
+
+      // Total perkiraan belanja setahun = sp * 12
+      // Rasio estimasi: Jasa Usaha ~ 7% dari total belanja tahunan
+      // Jasa Modal ~ 12% dari simpanan sukarela + pokok/wajib
+      const estJasaUsaha = Math.round(sp * 12 * 0.075);
+      const estJasaModal = Math.round((totalSimpanan(user) + sa) * 0.11);
+      const estTotal = estJasaUsaha + estJasaModal;
+
+      $('#simTotalShu').innerHTML = `<b>${rp(estTotal)}</b>`;
+      $('#simDetailShu').textContent = `Jasa Usaha: ${rp(estJasaUsaha)} · Jasa Modal: ${rp(estJasaModal)}`;
+    };
+    spSlider.oninput = calcShu;
+    saSlider.oninput = calcShu;
+    calcShu();
+
+    // Event: Top-up Simpanan
     $('#btnTopup').onclick = () => modal({
       title: 'Top-Up Simpanan Sukarela',
       body: `
-        <div class="field"><label>Nominal</label><input class="input" id="tuAmt" type="number" min="10000" step="10000" value="100000"/></div>
+        <div class="field"><label>Nominal Top-Up (Rp)</label><input class="input" id="tuAmt" type="number" min="10000" step="10000" value="100000"/></div>
         <div class="chips">${[50000, 100000, 250000, 500000].map((v) => `<button class="chip" data-amt="${v}">${rpShort(v)}</button>`).join('')}</div>
-        <div class="field"><label>Metode</label><select class="input" id="tuCh"><option value="MIDTRANS_QRIS">QRIS</option><option value="MIDTRANS_VA_BCA">VA BCA</option><option value="MIDTRANS_VA_BRI">VA BRI</option><option value="MIDTRANS_GOPAY">GoPay</option></select></div>
-        <p class="muted" style="font-size:12px">Demo: pembayaran disimulasikan, saldo langsung bertambah.</p>`,
+        <div class="field"><label>Metode Pembayaran</label><select class="input" id="tuCh"><option value="MIDTRANS_QRIS">QRIS Instan</option><option value="MIDTRANS_VA_BCA">VA BCA</option><option value="MIDTRANS_VA_BRI">VA BRI</option><option value="MIDTRANS_GOPAY">GoPay / ShopeePay</option></select></div>
+        <p class="muted" style="font-size:12px">Demo Sandbox: pembayaran langsung disimulasikan sukses dan saldo otomatis bertambah.</p>`,
       foot: `<button class="btn" data-close>Batal</button><button class="btn btn-gold" id="tuGo">Bayar via Midtrans</button>`,
       onMount: (m) => {
         $$('[data-amt]', m).forEach((c) => c.onclick = () => { $('#tuAmt', m).value = c.dataset.amt; });
@@ -1457,7 +1922,7 @@
           if (amt < 10000) return toast('Minimal top-up Rp 10.000', 'err');
           user.simpanan_sukarela += amt;
           db.finances.push({ id: Math.max(0, ...db.finances.map((f) => f.id)) + 1, user_id: user.id, type: 'SIMPANAN_SUKARELA', amount: amt, channel: $('#tuCh', m).value, status: 'BERHASIL', notes: 'Top-Up Simpanan Sukarela', created_at: new Date().toISOString() });
-          save(); closeModal(); toast(`Top-up ${rp(amt)} berhasil`); viewMemberHome(el, user);
+          save(); closeModal(); toast(`Top-up ${rp(amt)} berhasil ditambahkan ke saldo!`); viewMemberHome(el, user);
         };
       },
     });
