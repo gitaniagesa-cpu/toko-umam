@@ -2329,15 +2329,5 @@
     history.replaceState(null, '', location.pathname + location.hash);
   }
 
-  const urlParams = new URLSearchParams(location.search);
-  if (urlParams.has('login_as')) {
-    const targetRole = urlParams.get('login_as');
-    const u = db.users.find((x) => x.role === targetRole);
-    if (u) {
-      session = { userId: u.id, role: u.role, signedAt: new Date().toISOString() };
-      localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-    }
-  }
-
   route();
 })();
