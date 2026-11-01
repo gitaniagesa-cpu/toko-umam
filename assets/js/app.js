@@ -18,7 +18,19 @@
       const saved = JSON.parse(localStorage.getItem(STORE_KEY));
       if (saved && saved.users) {
         if (!saved.security) saved.security = clone(window.KOPMA_SEED.security);
+        if (!saved.banners) saved.banners = clone(window.KOPMA_SEED.banners);
         if (saved.products && window.KOPMA_SEED.products) {
+          const seedMap = new Map(window.KOPMA_SEED.products.map((p) => [p.id, p]));
+          saved.products.forEach((p) => {
+            const seed = seedMap.get(p.id);
+            if (seed) {
+              if (!p.image && seed.image) p.image = seed.image;
+              if (!p.desc && seed.desc) p.desc = seed.desc;
+              if (!p.rating && seed.rating) p.rating = seed.rating;
+              if (!p.sold_count && seed.sold_count) p.sold_count = seed.sold_count;
+              if (!p.badge_label && seed.badge_label) p.badge_label = seed.badge_label;
+            }
+          });
           const existingIds = new Set(saved.products.map((p) => p.id));
           window.KOPMA_SEED.products.forEach((p) => {
             if (!existingIds.has(p.id)) {
@@ -829,6 +841,192 @@
   }
 
   /* ---------------------------------------------------------------------- */
+  /* Helper: Product Photo Fallback & Marketing Utilities                   */
+  /* ---------------------------------------------------------------------- */
+  function productFallbackSvg(name) {
+    const safeName = esc(name || 'Produk');
+    const initial = (name || 'P').trim().charAt(0).toUpperCase();
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300">
+      <defs>
+        <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#2a251e"/>
+          <stop offset="100%" stop-color="#191612"/>
+        </linearGradient>
+      </defs>
+      <rect width="300" height="300" fill="url(#g)"/>
+      <circle cx="150" cy="130" r="52" fill="rgba(207,178,128,0.15)" stroke="rgba(207,178,128,0.4)" stroke-width="2"/>
+      <text x="150" y="146" font-family="system-ui, sans-serif" font-size="44" font-weight="700" fill="#cfb280" text-anchor="middle">${initial}</text>
+      <text x="150" y="222" font-family="system-ui, sans-serif" font-size="14" font-weight="600" fill="#d9cfbf" text-anchor="middle">${safeName.slice(0, 22)}</text>
+      <text x="150" y="244" font-family="system-ui, sans-serif" font-size="11" fill="#8c8273" text-anchor="middle">KOPMA MART STORE</text>
+    </svg>`;
+    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  }
+
+  function renderPromoBannerHtml(banners, carouselId = 'promoCarousel') {
+    if (!banners || !banners.length) return '';
+    return `
+      <div class="promo-carousel" id="${carouselId}">
+        ${banners.map((b, idx) => `
+          <div class="promo-slide ${idx === 0 ? 'active' : ''}" style="background-image:linear-gradient(90deg, rgba(16,14,12,0.96) 0%, rgba(26,22,17,0.8) 55%, rgba(0,0,0,0.4) 100%), url('${b.image}')">
+            <div class="promo-content">
+              <span class="promo-tag">${esc(b.tag)}</span>
+              <div class="promo-title">${esc(b.title)}</div>
+              <div class="promo-sub">${esc(b.subtitle)}</div>
+              <div style="display:flex;align-items:center;gap:12px;margin-top:14px">
+                <a href="#/pos" class="btn btn-gold btn-sm" style="box-shadow:0 6px 18px rgba(207,178,128,0.35);font-weight:700">
+                  ${esc(b.action_label || 'Beli Sekarang')} →
+                </a>
+                <span style="font-size:12px;color:rgba(255,255,255,0.75)">⚡ Promo Berlaku Hari Ini</span>
+              </div>
+            </div>
+          </div>
+        `).join('')}
+        <button class="promo-arrow prev" data-cnav="${carouselId}" data-dir="-1" title="Sebelumnya">‹</button>
+        <button class="promo-arrow next" data-cnav="${carouselId}" data-dir="1" title="Berikutnya">›</button>
+        <div class="promo-nav">
+          ${banners.map((_, idx) => `<div class="promo-dot ${idx === 0 ? 'active' : ''}" data-cdot="${carouselId}" data-idx="${idx}"></div>`).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  function setupPromoCarousel(carouselId = 'promoCarousel', intervalMs = 4500) {
+    const root = document.getElementById(carouselId);
+    if (!root) return;
+    const slides = root.querySelectorAll('.promo-slide');
+    const dots = root.querySelectorAll('.promo-dot');
+    if (slides.length <= 1) return;
+    let current = 0;
+    let timer = null;
+
+    const show = (idx) => {
+      current = (idx + slides.length) % slides.length;
+      slides.forEach((s, i) => s.classList.toggle('active', i === current));
+      dots.forEach((d, i) => d.classList.toggle('active', i === current));
+    };
+
+    const startAuto = () => {
+      stopAuto();
+      timer = setInterval(() => show(current + 1), intervalMs);
+    };
+    const stopAuto = () => {
+      if (timer) clearInterval(timer);
+    };
+
+    root.querySelectorAll(`[data-cnav="${carouselId}"]`).forEach((btn) => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const dir = parseInt(btn.dataset.dir, 10);
+        show(current + dir);
+        startAuto();
+      };
+    });
+
+    root.querySelectorAll(`[data-cdot="${carouselId}"]`).forEach((dot) => {
+      dot.onclick = (e) => {
+        e.stopPropagation();
+        const idx = parseInt(dot.dataset.idx, 10);
+        show(idx);
+        startAuto();
+      };
+    });
+
+    root.addEventListener('mouseenter', stopAuto);
+    root.addEventListener('mouseleave', startAuto);
+    startAuto();
+  }
+
+  function openProductDetail(p, onAddToCart) {
+    const isUmkm = p.is_consignment || p.category === 'Konsinyasi Mahasiswa';
+    const discPct = p.original_price && p.sell_price < p.original_price
+      ? Math.round(((p.original_price - p.sell_price) / p.original_price) * 100)
+      : 0;
+    
+    modal({
+      title: esc(p.name),
+      body: `
+        <div>
+          <div style="position:relative;border-radius:14px;overflow:hidden;margin-bottom:16px;background:#1a1713;max-height:280px;box-shadow:0 8px 24px rgba(0,0,0,0.4)">
+            <img src="${p.image || productFallbackSvg(p.name)}" alt="${esc(p.name)}" onerror="this.onerror=null;this.src='${productFallbackSvg(p.name)}'" style="width:100%;height:260px;object-fit:cover;display:block" />
+            <div style="position:absolute;top:12px;left:12px;display:flex;gap:6px">
+              ${p.badge_label ? `<span class="badge ${p.badge_label.includes('STAR') ? 'b-gold' : 'b-rose'}">${esc(p.badge_label)}</span>` : ''}
+              ${discPct > 0 ? `<span class="badge b-rose">HEMAT ${discPct}%</span>` : ''}
+            </div>
+            <div style="position:absolute;bottom:12px;right:12px;background:rgba(18,15,12,0.85);backdrop-filter:blur(8px);padding:4px 10px;border-radius:20px;font-size:12px;color:#fff;border:1px solid rgba(255,255,255,0.1)">
+              ⭐ ${p.rating || '4.9'} · ${p.sold_count || '100+'} terjual
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px">
+            <div>
+              <span style="font-size:11px;color:var(--gold);font-weight:700;letter-spacing:1px;text-transform:uppercase">${esc(p.brand || 'KOPMA')} · ${esc(p.category)}</span>
+              <h2 style="font-size:19px;margin:4px 0 6px;line-height:1.3;color:var(--text-1)">${esc(p.name)}</h2>
+              <div style="font-size:12px;color:var(--muted)">PLU: <code>${p.plu_code}</code> · Barcode: <code>${p.barcode}</code></div>
+            </div>
+            <div style="text-align:right">
+              ${p.original_price && p.original_price > p.sell_price ? `<div style="font-size:12.5px;color:var(--muted);text-decoration:line-through">${rp(p.original_price)}</div>` : ''}
+              <div style="font-family:var(--font-display);font-size:24px;font-weight:700;color:var(--gold)">${rp(p.sell_price)}</div>
+              <div style="font-size:11.5px;color:var(--sage)">Hemat Member: ${rp(p.member_discount)}</div>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:10px;padding:12px;border-radius:10px;background:var(--bg-card);border:1px solid var(--line);margin-bottom:14px;font-size:12px">
+            <div><span class="muted" style="display:block">Stok Siap Beli</span><b style="color:${p.stock <= p.min_stock ? 'var(--rose)' : 'var(--sage)'}">${p.stock} pcs tersisa</b></div>
+            <div><span class="muted" style="display:block">Produsen / Kreator</span><b>${esc(p.supplier_name || 'KOPMA Mart')}</b></div>
+            <div><span class="muted" style="display:block">Tipe Produk</span><b>${isUmkm ? '⭐ UMKM Mahasiswa' : 'Retail Pabrikan'}</b></div>
+          </div>
+
+          <div style="margin-bottom:18px">
+            <h4 style="font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:6px">Informasi & Deskripsi Produk</h4>
+            <p style="font-size:13px;line-height:1.6;color:var(--text-2);margin:0;background:var(--bg-elev);padding:12px;border-radius:10px;border:1px solid var(--line)">
+              ${esc(p.desc || 'Produk kualitas terjamin, segar, higienis, dan siap dinikmati kapan saja. Dijual resmi di KOPMA Mart dengan jaminan mutu terbaik.')}
+            </p>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:12px;padding-top:14px;border-top:1px solid var(--line)">
+            <div style="display:flex;align-items:center;border:1px solid var(--line);border-radius:8px;overflow:hidden">
+              <button class="icon-btn" id="modalQtyDec" style="width:36px;height:36px">−</button>
+              <span id="modalQtyVal" style="width:40px;text-align:center;font-weight:700;font-size:14px">1</span>
+              <button class="icon-btn" id="modalQtyInc" style="width:36px;height:36px">+</button>
+            </div>
+            <div style="flex:1;text-align:right">
+              <div style="font-size:11px;color:var(--muted)">Subtotal</div>
+              <div id="modalSubtotal" style="font-weight:700;font-size:16px;color:var(--gold)">${rp(p.sell_price)}</div>
+            </div>
+            <button class="btn btn-gold" id="btnModalAdd" style="padding:10px 20px;font-weight:700">
+              ${icon('plus')} + Masukkan Keranjang
+            </button>
+          </div>
+        </div>
+      `,
+      onMount: (m) => {
+        let qty = 1;
+        const dec = $('#modalQtyDec', m);
+        const inc = $('#modalQtyInc', m);
+        const val = $('#modalQtyVal', m);
+        const sub = $('#modalSubtotal', m);
+        const add = $('#btnModalAdd', m);
+
+        const update = () => {
+          val.textContent = qty;
+          sub.textContent = rp(p.sell_price * qty);
+        };
+
+        dec.onclick = () => { if (qty > 1) { qty--; update(); } };
+        inc.onclick = () => { if (qty < p.stock) { qty++; update(); } else { toast('Maksimal stok tercapai', 'err'); } };
+
+        add.onclick = () => {
+          for (let i = 0; i < qty; i++) {
+            if (onAddToCart) onAddToCart(p.id);
+          }
+          closeModal();
+          toast(`${qty}x ${p.name} berhasil ditambahkan!`);
+        };
+      }
+    });
+  }
+
+  /* ---------------------------------------------------------------------- */
   /* View: POS Kasir                                                        */
   /* ---------------------------------------------------------------------- */
   function cartTotals() {
@@ -862,8 +1060,9 @@
     el.innerHTML = `
       <div class="pos">
         <div>
+          ${renderPromoBannerHtml(db.banners || db.marketingBanners || [], 'posBannerCarousel')}
           <div class="pos-toolbar">
-            <div class="input-icon">${icon('search')}<input class="input" id="posSearch" placeholder="Cari nama produk, PLU, atau scan barcode…  (F1)" value="${esc(ui.posQuery)}" /></div>
+            <div class="input-icon">${icon('search')}<input class="input" id="posSearch" placeholder="Cari nama produk, brand, PLU, atau barcode…  (F1)" value="${esc(ui.posQuery)}" /></div>
             <button class="btn" id="btnMember">${icon('user')} Pilih Anggota <span class="kbd">F3</span></button>
           </div>
           <div class="chips">${cats.map((c) => `<button class="chip ${c === ui.posCategory ? 'active' : ''}" data-cat="${esc(c)}">${esc(c === 'Konsinyasi Mahasiswa' ? '⭐ UMKM Mahasiswa' : c)}</button>`).join('')}</div>
@@ -889,16 +1088,59 @@
       const q = ui.posQuery.toLowerCase();
       const list = db.products.filter((p) =>
         (ui.posCategory === 'Semua' || p.category === ui.posCategory) &&
-        (!q || p.name.toLowerCase().includes(q) || p.plu_code.includes(q) || p.barcode.includes(q)));
+        (!q || p.name.toLowerCase().includes(q) || p.plu_code.includes(q) || p.barcode.includes(q) || (p.brand && p.brand.toLowerCase().includes(q)) || (p.supplier_name && p.supplier_name.toLowerCase().includes(q))));
+      
       $('#productGrid').innerHTML = list.length ? list.map((p) => {
         const isUmkm = p.is_consignment || p.category === 'Konsinyasi Mahasiswa';
+        const discPct = p.original_price && p.sell_price < p.original_price
+          ? Math.round(((p.original_price - p.sell_price) / p.original_price) * 100)
+          : 0;
+        const brandLabel = p.brand || (isUmkm ? 'UMKM Mhs' : 'KOPMA');
+        const inCart = ui.cart.find((l) => l.id === p.id);
+        const cartQty = inCart ? inCart.qty : 0;
+
         return `
-        <div class="product" data-add="${p.id}">
-          <div class="p-top"><span class="kbd">PLU ${p.plu_code}</span>${isUmkm ? '<span class="badge-umkm">⭐ UMKM Mhs</span>' : (p.stock <= p.min_stock ? '<span class="badge b-rose plain">Stok tipis</span>' : '')}</div>
-          <div class="p-name">${esc(p.name)}</div>
-          <div class="p-price">${rp(p.sell_price)}</div>
-          <div class="p-meta"><span>Stok ${p.stock}</span><span>Member −${rp(p.member_discount)}</span></div>
-          ${isUmkm ? `<div style="font-size:11px;color:var(--gold);margin-top:-2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Oleh: ${esc(p.supplier_name)}</div>` : ''}
+        <div class="product" data-product-id="${p.id}">
+          <div class="product-img-wrap" data-open-detail="${p.id}">
+            <img class="product-img" src="${p.image || productFallbackSvg(p.name)}" alt="${esc(p.name)}" loading="lazy" onerror="this.onerror=null;this.src='${productFallbackSvg(p.name)}'" />
+            <div class="product-badges">
+              ${p.badge_label ? `<span class="badge ${p.badge_label.includes('STAR') ? 'b-gold' : 'b-rose'}">${esc(p.badge_label)}</span>` : `<span class="badge ${isUmkm ? 'b-gold' : 'b-slate'} plain">${esc(brandLabel)}</span>`}
+              ${discPct > 0 ? `<span class="p-discount-pill">-${discPct}%</span>` : ''}
+            </div>
+            ${p.stock <= p.min_stock ? `<div style="position:absolute;bottom:8px;left:8px;background:rgba(224,86,74,0.92);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;backdrop-filter:blur(4px)">Sisa ${p.stock} pcs</div>` : ''}
+          </div>
+          <div class="product-content">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
+              <span style="font-size:10.5px;font-weight:700;color:var(--gold);text-transform:uppercase;letter-spacing:0.5px">${esc(brandLabel)}</span>
+              <div class="product-rating">⭐ ${p.rating || '4.9'} <span>(${p.sold_count || '100+'})</span></div>
+            </div>
+            <div class="p-name" title="${esc(p.name)}">${esc(p.name)}</div>
+            
+            <div class="p-price-row">
+              <div>
+                ${p.original_price && p.original_price > p.sell_price ? `<div class="p-orig-price">${rp(p.original_price)}</div>` : ''}
+                <div class="p-price">${rp(p.sell_price)}</div>
+              </div>
+              <div style="text-align:right">
+                <span class="p-stock-info">Stok: <b>${p.stock}</b></span>
+              </div>
+            </div>
+
+            <div class="p-meta-discount">
+              ${icon('sparkle')} Member −${rp(p.member_discount)}
+            </div>
+
+            ${isUmkm ? `<div class="p-creator">Karya: <b>${esc(p.supplier_name)}</b> ${p.location ? `· ${esc(p.location)}` : ''}</div>` : ''}
+
+            <div class="p-actions">
+              <button class="p-btn-add" data-add="${p.id}" type="button">
+                ${cartQty > 0 ? `<b>(${cartQty})</b> + Tambah` : `+ Keranjang`}
+              </button>
+              <button class="p-btn-detail" data-open-detail="${p.id}" type="button" title="Lihat Foto & Detail">
+                ℹ
+              </button>
+            </div>
+          </div>
         </div>`;
       }).join('') : '<div class="empty">Produk tidak ditemukan.</div>';
     };
@@ -936,6 +1178,7 @@
       if ((line ? line.qty : 0) >= p.stock) return toast('Stok tidak mencukupi', 'err');
       line ? line.qty++ : ui.cart.push({ id, qty: 1 });
       renderCart();
+      renderProducts();
     };
 
     function openMemberPicker() {
@@ -1040,15 +1283,35 @@
       }
     });
     $$('[data-cat]').forEach((c) => c.onclick = () => { ui.posCategory = c.dataset.cat; $$('[data-cat]').forEach((x) => x.classList.toggle('active', x === c)); renderProducts(); });
-    $('#productGrid').addEventListener('click', (e) => { const p = e.target.closest('[data-add]'); if (p) addToCart(+p.dataset.add); });
+    $('#productGrid').addEventListener('click', (e) => {
+      const add = e.target.closest('[data-add]');
+      if (add) return addToCart(+add.dataset.add);
+      const detail = e.target.closest('[data-open-detail]');
+      if (detail) {
+        const prod = db.products.find((x) => x.id === +detail.dataset.openDetail);
+        if (prod) return openProductDetail(prod, addToCart);
+      }
+      const prodCard = e.target.closest('.product');
+      if (prodCard && prodCard.dataset.productId) {
+        addToCart(+prodCard.dataset.productId);
+      }
+    });
     $('#cartItems').addEventListener('click', (e) => {
       const inc = e.target.closest('[data-inc]'), dec = e.target.closest('[data-dec]');
       if (inc) addToCart(+inc.dataset.inc);
-      if (dec) { const l = ui.cart.find((x) => x.id === +dec.dataset.dec); l.qty--; if (!l.qty) ui.cart = ui.cart.filter((x) => x !== l); renderCart(); }
+      if (dec) {
+        const l = ui.cart.find((x) => x.id === +dec.dataset.dec);
+        if (l) {
+          l.qty--;
+          if (!l.qty) ui.cart = ui.cart.filter((x) => x !== l);
+          renderCart();
+          renderProducts();
+        }
+      }
     });
     $$('[data-pay]').forEach((b) => b.onclick = () => { ui.payMethod = b.dataset.pay; $$('[data-pay]').forEach((x) => x.classList.toggle('active', x === b)); renderCart(); });
     $('#btnMember').onclick = openMemberPicker;
-    $('#btnClear').onclick = () => { ui.cart = []; renderCart(); };
+    $('#btnClear').onclick = () => { ui.cart = []; renderCart(); renderProducts(); };
     $('#btnPay').onclick = checkout;
 
     posKeys = (e) => {
@@ -1056,13 +1319,14 @@
       const map = {
         F1: () => $('#posSearch').focus(),
         F3: openMemberPicker,
-        F4: () => { ui.cart = []; renderCart(); },
+        F4: () => { ui.cart = []; renderCart(); renderProducts(); },
         F9: () => { const btns = $$('[data-pay]'); const i = btns.findIndex((b) => b.classList.contains('active')); btns[(i + 1) % btns.length].click(); },
         F10: checkout,
       };
       if (map[e.key]) { e.preventDefault(); map[e.key](); }
     };
     renderProducts(); renderCart();
+    setupPromoCarousel('posBannerCarousel');
   }
   let posKeys = null;
   document.addEventListener('keydown', (e) => {
@@ -1182,6 +1446,7 @@
           <table>
             <thead>
               <tr>
+                <th style="width:64px">Foto</th>
                 <th>PLU</th>
                 <th>Nama Produk & Produsen</th>
                 <th>Kategori</th>
@@ -1208,6 +1473,7 @@
           p.name.toLowerCase().includes(q) ||
           p.plu_code.includes(q) ||
           p.category.toLowerCase().includes(q) ||
+          (p.brand && p.brand.toLowerCase().includes(q)) ||
           (p.supplier_name && p.supplier_name.toLowerCase().includes(q))
         );
       });
@@ -1218,18 +1484,23 @@
         const isUmkm = p.is_consignment || p.category === 'Konsinyasi Mahasiswa';
         return `
           <tr>
+            <td>
+              <img src="${p.image || productFallbackSvg(p.name)}" alt="${esc(p.name)}" onerror="this.onerror=null;this.src='${productFallbackSvg(p.name)}'" style="width:50px;height:50px;object-fit:cover;border-radius:8px;border:1px solid var(--line-2);background:#1a1713;display:block;cursor:pointer" data-view-img="${p.id}" title="Klik untuk lihat foto & detail" />
+            </td>
             <td class="mono">${p.plu_code}</td>
             <td>
               <div style="display:flex;align-items:center;gap:8px">
                 <b>${esc(p.name)}</b>
-                ${isUmkm ? '<span class="badge-umkm">⭐ UMKM</span>' : ''}
+                ${p.badge_label ? `<span class="badge ${p.badge_label.includes('STAR') ? 'b-gold' : 'b-rose'} plain" style="font-size:10px;padding:2px 7px">${esc(p.badge_label)}</span>` : ''}
+                ${isUmkm ? '<span class="badge-umkm" style="font-size:10px;padding:2px 7px">⭐ UMKM</span>' : ''}
               </div>
-              <span class="sub">${esc(p.supplier_name || 'KOPMA Store')} · ${esc(p.supplier_phone || '-')}</span>
+              <span class="sub">${esc(p.brand ? p.brand + ' · ' : '')}${esc(p.supplier_name || 'KOPMA Store')} · ${esc(p.supplier_phone || '-')}</span>
             </td>
             <td>${esc(p.category)}</td>
             <td class="right">${rp(p.cost_price)}</td>
             <td class="right">
               <b>${rp(p.sell_price)}</b>
+              ${p.original_price && p.original_price > p.sell_price ? `<span class="sub" style="text-decoration:line-through;color:var(--muted)">${rp(p.original_price)}</span>` : ''}
               ${p.member_discount ? `<span class="sub up">Member −${rp(p.member_discount)}</span>` : ''}
             </td>
             <td class="right">${margin.toFixed(1)}%</td>
@@ -1243,7 +1514,14 @@
               ${plan ? `<span class="badge ${plan.critical ? 'b-rose' : 'b-amber'}">${plan.critical ? 'Kritis' : 'Siaga'}</span>` : '<span class="badge b-sage">Aman</span>'}
             </td>
           </tr>`;
-      }).join('') : '<tr><td colspan="8" class="empty">Tidak ada produk yang cocok dengan pencarian / filter.</td></tr>';
+      }).join('') : '<tr><td colspan="9" class="empty">Tidak ada produk yang cocok dengan pencarian / filter.</td></tr>';
+
+      $$('#pBody [data-view-img]').forEach((img) => {
+        img.onclick = () => {
+          const prod = db.products.find((x) => x.id === +img.dataset.viewImg);
+          if (prod) openProductDetail(prod, (id) => toast(`Produk ${prod.name} siap ditransaksikan di kasir`));
+        };
+      });
     };
 
     $('#pSearch').addEventListener('input', (e) => { ui.productQuery = e.target.value; draw(); });
@@ -1727,8 +2005,76 @@
     const trx = db.transactions.filter((t) => t.user_id === user.id).sort((a, b) => b.created_at.localeCompare(a.created_at));
     const fin = db.finances.filter((f) => f.user_id === user.id);
     const umkmProducts = db.products.filter((p) => p.is_consignment || p.category === 'Konsinyasi Mahasiswa');
+    const brandProducts = db.products.filter((p) => p.brand_type === 'brand_nasional' || (!p.is_consignment && p.category !== 'Konsinyasi Mahasiswa'));
+
+    const memberProductCard = (p) => {
+      const isUmkm = p.is_consignment || p.category === 'Konsinyasi Mahasiswa';
+      const discPct = p.original_price && p.sell_price < p.original_price
+        ? Math.round(((p.original_price - p.sell_price) / p.original_price) * 100)
+        : 0;
+      const brandLabel = p.brand || (isUmkm ? 'UMKM Mhs' : 'KOPMA');
+      return `
+        <div class="product" data-mem-prod="${p.id}" style="cursor:pointer">
+          <div class="product-img-wrap" data-mem-detail="${p.id}">
+            <img class="product-img" src="${p.image || productFallbackSvg(p.name)}" alt="${esc(p.name)}" loading="lazy" onerror="this.onerror=null;this.src='${productFallbackSvg(p.name)}'" />
+            <div class="product-badges">
+              ${p.badge_label ? `<span class="badge ${p.badge_label.includes('STAR') ? 'b-gold' : 'b-rose'}">${esc(p.badge_label)}</span>` : `<span class="badge ${isUmkm ? 'b-gold' : 'b-slate'} plain">${esc(brandLabel)}</span>`}
+              ${discPct > 0 ? `<span class="p-discount-pill">-${discPct}%</span>` : ''}
+            </div>
+            ${p.stock <= p.min_stock ? `<div style="position:absolute;bottom:8px;left:8px;background:rgba(224,86,74,0.92);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px">Sisa ${p.stock}</div>` : ''}
+          </div>
+          <div class="product-content">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
+              <span style="font-size:10.5px;font-weight:700;color:var(--gold);text-transform:uppercase">${esc(brandLabel)}</span>
+              <div class="product-rating">⭐ ${p.rating || '4.9'} <span>(${p.sold_count || '100+'})</span></div>
+            </div>
+            <div class="p-name" title="${esc(p.name)}">${esc(p.name)}</div>
+            <div class="p-price-row">
+              <div>
+                ${p.original_price && p.original_price > p.sell_price ? `<div class="p-orig-price">${rp(p.original_price)}</div>` : ''}
+                <div class="p-price">${rp(p.sell_price)}</div>
+              </div>
+              <span class="p-stock-info">Stok: <b>${p.stock}</b></span>
+            </div>
+            <div class="p-meta-discount">
+              ${icon('sparkle')} Member Hemat ${rp(p.member_discount)}
+            </div>
+            ${isUmkm ? `<div class="p-creator">Oleh: <b>${esc(p.supplier_name)}</b> ${p.location ? `· ${esc(p.location)}` : ''}</div>` : `<div class="p-creator">Distributor Resmi KOPMA Mart</div>`}
+            <div class="p-actions">
+              <button class="p-btn-add" data-mem-buy="${p.id}" type="button">
+                + Beli Sekarang
+              </button>
+              <button class="p-btn-detail" data-mem-detail="${p.id}" type="button" title="Lihat Foto & Detail">
+                ℹ
+              </button>
+            </div>
+          </div>
+        </div>`;
+    };
 
     el.innerHTML = `
+      <!-- Shopee-Style Hero Promo Banner -->
+      ${renderPromoBannerHtml(db.banners || db.marketingBanners || [], 'memberBannerCarousel')}
+
+      <!-- Flash Sale & Quick Alert -->
+      <div class="insight" style="background:linear-gradient(135deg,rgba(224,86,74,0.12),rgba(207,178,128,0.08));border-color:rgba(224,86,74,0.35);margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px">
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="font-size:26px">⚡</span>
+          <div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <b style="color:var(--rose);font-size:14px;letter-spacing:1px">FLASH SALE SPESIAL HARI INI</b>
+              <span class="badge b-rose plain" style="font-size:10px;font-weight:700">HEMAT HINGGA 30%</span>
+            </div>
+            <div class="muted" style="font-size:12px;margin-top:2px">Diskon roti segar, mie instan, & kuliner mahasiswa terfavorit langsung di kasir KOPMA!</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <a href="#/pos" class="btn btn-gold btn-sm" style="font-weight:700;box-shadow:0 4px 14px rgba(207,178,128,0.3)">
+            Belanja di Kasir Sekarang →
+          </a>
+        </div>
+      </div>
+
       <div class="grid g-main">
         <!-- Kartu Anggota Digital VIP -->
         <div class="vip-card">
@@ -1818,34 +2164,44 @@
         </div>
       </div>
 
-      <!-- Showcase Katalog Produk UMKM Mahasiswa -->
+      <!-- Showcase 1: Kuliner & Jajanan UMKM Mahasiswa -->
       <div class="card mt">
         <div class="card-head">
           <div>
-            <h3>Katalog Belanja UMKM & Kuliner Mahasiswa</h3>
-            <p>Jajanan lezat dan karya kreatif mahasiswa dengan diskon khusus anggota</p>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span class="badge-umkm">⭐ PEMBERDAYAAN MAHASISWA</span>
+              <span class="badge b-gold plain">Bagi Hasil 85% untuk Kreator</span>
+            </div>
+            <h3 style="margin-top:6px">Katalog Kuliner & Jajanan UMKM Kampus</h3>
+            <p>Lezat, higienis, dan dibuat langsung oleh mahasiswa kreatif kampus kita</p>
           </div>
           <div class="spacer"></div>
-          <a href="#/products" class="btn btn-sm btn-ghost">Lihat Semua Produk (${db.products.length}) →</a>
+          <a href="#/pos" class="btn btn-sm btn-ghost">Beli di Kasir (${umkmProducts.length} Produk) →</a>
         </div>
         <div class="card-body">
-          <div class="products" style="grid-template-columns:repeat(auto-fill, minmax(210px, 1fr))">
-            ${umkmProducts.slice(0, 8).map((p) => `
-              <div class="product" style="cursor:default">
-                <div class="p-top">
-                  <span class="badge-umkm">⭐ UMKM Mhs</span>
-                  <span class="kbd">Stok ${p.stock}</span>
-                </div>
-                <div class="p-name">${esc(p.name)}</div>
-                <div class="p-price">${rp(p.sell_price)}</div>
-                <div class="p-meta">
-                  <span class="up">Hemat ${rp(p.member_discount)} (Member)</span>
-                </div>
-                <div style="font-size:11.5px;color:var(--muted);margin-top:auto;padding-top:6px;border-top:1px dashed var(--line-2)">
-                  Oleh: <b style="color:var(--text-2)">${esc(p.supplier_name)}</b>
-                </div>
-              </div>
-            `).join('')}
+          <div class="products" id="memberUmkmGrid" style="grid-template-columns:repeat(auto-fill, minmax(215px, 1fr))">
+            ${umkmProducts.slice(0, 8).map(memberProductCard).join('')}
+          </div>
+        </div>
+      </div>
+
+      <!-- Showcase 2: Produk Retail & Brand Nasional Populer -->
+      <div class="card mt">
+        <div class="card-head">
+          <div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span class="badge b-slate plain">OFFICIAL STORE MART</span>
+              <span class="badge b-sage plain">Harga Pasar Kompetitif</span>
+            </div>
+            <h3 style="margin-top:6px">Kebutuhan Harian & Brand Ternama</h3>
+            <p>Roti segar Sari Roti, Mie Sedaap, Indomie, Aqua, Ultra Milk, & Camilan Favorit</p>
+          </div>
+          <div class="spacer"></div>
+          <a href="#/pos" class="btn btn-sm btn-ghost">Lihat Semua Brand →</a>
+        </div>
+        <div class="card-body">
+          <div class="products" id="memberBrandGrid" style="grid-template-columns:repeat(auto-fill, minmax(215px, 1fr))">
+            ${brandProducts.slice(0, 8).map(memberProductCard).join('')}
           </div>
         </div>
       </div>
@@ -1865,6 +2221,40 @@
           </tbody></table></div>
         </div>
       </div>`;
+
+    const buyProduct = (id) => {
+      ui.member = user;
+      const p = db.products.find((x) => x.id === id);
+      if (!p) return;
+      const line = ui.cart.find((l) => l.id === id);
+      if ((line ? line.qty : 0) >= p.stock) return toast('Stok tidak mencukupi', 'err');
+      line ? line.qty++ : ui.cart.push({ id, qty: 1 });
+      toast(`${p.name} dimasukkan keranjang! Mengalihkan ke kasir...`);
+      setTimeout(() => { location.hash = '#/pos'; }, 350);
+    };
+
+    $$('#memberUmkmGrid [data-mem-buy], #memberBrandGrid [data-mem-buy]').forEach((b) => {
+      b.onclick = (e) => {
+        e.stopPropagation();
+        buyProduct(+b.dataset.memBuy);
+      };
+    });
+
+    $$('#memberUmkmGrid [data-mem-detail], #memberBrandGrid [data-mem-detail]').forEach((b) => {
+      b.onclick = (e) => {
+        e.stopPropagation();
+        const p = db.products.find((x) => x.id === +b.dataset.memDetail);
+        if (p) openProductDetail(p, buyProduct);
+      };
+    });
+
+    $$('#memberUmkmGrid .product, #memberBrandGrid .product').forEach((card) => {
+      card.onclick = (e) => {
+        if (e.target.closest('[data-mem-buy]') || e.target.closest('[data-mem-detail]')) return;
+        const p = db.products.find((x) => x.id === +card.dataset.memProd);
+        if (p) openProductDetail(p, buyProduct);
+      };
+    });
 
     // Event: Show QR Code Modal
     $('#btnShowQr').onclick = () => {
@@ -1926,6 +2316,8 @@
         };
       },
     });
+
+    setupPromoCarousel('memberBannerCarousel');
   }
 
   /* ---------------------------------------------------------------------- */
@@ -1935,6 +2327,16 @@
     localStorage.removeItem(STORE_KEY);
     db = clone(window.KOPMA_SEED);
     history.replaceState(null, '', location.pathname + location.hash);
+  }
+
+  const urlParams = new URLSearchParams(location.search);
+  if (urlParams.has('login_as')) {
+    const targetRole = urlParams.get('login_as');
+    const u = db.users.find((x) => x.role === targetRole);
+    if (u) {
+      session = { userId: u.id, role: u.role, signedAt: new Date().toISOString() };
+      localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    }
   }
 
   route();
